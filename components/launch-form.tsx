@@ -16,17 +16,36 @@ import {
   ChevronUp,
   Loader2,
   Key,
-  UserPlus,
+  Zap,
   ExternalLink,
   Send,
   CheckCircle2,
   XCircle,
+  Shield,
+  Wallet,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 const ADMIN_WALLET = "0x9c6111C77CBE545B9703243F895EB593f2721C7a";
 
 type Step = "setup" | "form" | "review" | "posting";
-type SetupMode = "existing" | "register";
+type SetupMode = "existing" | "auto";
+
+interface WalletInfo {
+  address: string;
+  privateKey: string;
+}
+
+interface SetupResult {
+  success: boolean;
+  partial?: boolean;
+  message: string;
+  apiKey?: string;
+  wallet?: WalletInfo;
+  step?: string;
+  log?: string[];
+}
 
 interface PostResult {
   success: boolean;
@@ -39,20 +58,17 @@ interface PostResult {
 export function LaunchForm() {
   // Setup state
   const [currentStep, setCurrentStep] = useState<Step>("setup");
-  const [setupMode, setSetupMode] = useState<SetupMode>("existing");
+  const [setupMode, setSetupMode] = useState<SetupMode>("auto");
   const [apiKey, setApiKey] = useState("");
-  const [apiKeySaved, setApiKeySaved] = useState(false);
+  const [agentWallet, setAgentWallet] = useState<WalletInfo | null>(null);
 
-  // Register state
-  const [regName, setRegName] = useState("");
-  const [regDisplayName, setRegDisplayName] = useState("");
-  const [regDescription, setRegDescription] = useState("");
-  const [isRegistering, setIsRegistering] = useState(false);
-  const [registerResult, setRegisterResult] = useState<{
-    success: boolean;
-    message: string;
-    apiKey?: string;
-  } | null>(null);
+  // Auto-setup state
+  const [agentName, setAgentName] = useState("");
+  const [agentDisplayName, setAgentDisplayName] = useState("");
+  const [agentBio, setAgentBio] = useState("");
+  const [isSettingUp, setIsSettingUp] = useState(false);
+  const [setupResult, setSetupResult] = useState<SetupResult | null>(null);
+  const [showPrivateKey, setShowPrivateKey] = useState(false);
 
   // Token form state
   const [name, setName] = useState("");
@@ -105,62 +121,58 @@ export function LaunchForm() {
     lp,
   ]);
 
-  async function handleRegister() {
-    if (!regName.trim()) return;
-    setIsRegistering(true);
-    setRegisterResult(null);
+  // ── Auto-setup: register + generate wallet + link ──────────
+  async function handleAutoSetup() {
+    if (!agentName.trim()) return;
+    setIsSettingUp(true);
+    setSetupResult(null);
 
     try {
-      const res = await fetch("/api/moltx/register", {
+      const res = await fetch("/api/moltx/auto-setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: regName.trim(),
-          displayName: regDisplayName.trim() || regName.trim(),
-          description: regDescription.trim(),
+          agentName: agentName.trim(),
+          displayName: agentDisplayName.trim() || agentName.trim(),
+          description: agentBio.trim(),
+          chainId: 56,
         }),
       });
-      const data = await res.json();
 
-      if (data.success) {
-        const newKey =
-          data.data?.data?.api_key ||
-          data.data?.api_key ||
-          data.data?.data?.apiKey;
-        if (newKey) {
-          setApiKey(newKey);
-          setRegisterResult({
-            success: true,
-            message:
-              "Agent registered! Your API key is below. Save it securely -- you will need it to post.",
-            apiKey: newKey,
-          });
-        } else {
-          setRegisterResult({
-            success: true,
-            message:
-              "Agent registered! Check the response for your API key.",
-          });
-        }
+      const data: SetupResult = await res.json();
+
+      if (data.success || data.apiKey) {
+        if (data.apiKey) setApiKey(data.apiKey);
+        if (data.wallet) setAgentWallet(data.wallet);
+        setSetupResult(data);
       } else {
-        setRegisterResult({
+        setSetupResult({
           success: false,
-          message: data.error || "Registration failed",
+          message:
+            data.message ||
+            (data as Record<string, unknown>).error?.toString() ||
+            "Setup failed",
+          log: data.log,
         });
       }
     } catch {
-      setRegisterResult({
+      setSetupResult({
         success: false,
-        message: "Network error during registration",
+        message: "Network error during auto-setup",
       });
     } finally {
-      setIsRegistering(false);
+      setIsSettingUp(false);
     }
   }
 
-  function handleSaveKey() {
+  function handleContinueToForm() {
     if (apiKey.trim()) {
-      setApiKeySaved(true);
+      setCurrentStep("form");
+    }
+  }
+
+  function handleSaveExistingKey() {
+    if (apiKey.trim()) {
       setCurrentStep("form");
     }
   }
@@ -224,6 +236,10 @@ export function LaunchForm() {
     setTimeout(() => setCopied(false), 2000);
   }
 
+  async function handleCopyText(text: string) {
+    await navigator.clipboard.writeText(text);
+  }
+
   // Step indicator
   const steps = [
     { key: "setup", label: "Connect" },
@@ -275,10 +291,30 @@ export function LaunchForm() {
         ))}
       </div>
 
-      {/* STEP: Setup / API Key */}
+      {/* ═══════ STEP: Setup ═══════ */}
       {currentStep === "setup" && (
         <div className="space-y-4">
+          {/* Mode selector */}
           <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setSetupMode("auto")}
+              className={`flex-1 rounded-lg border px-3 py-3 text-left transition-colors ${
+                setupMode === "auto"
+                  ? "border-primary bg-primary/5"
+                  : "border-border bg-secondary hover:bg-secondary/80"
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <Zap className="h-4 w-4 text-primary" />
+                <span className="text-sm font-medium text-card-foreground">
+                  One-Click Setup
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                Auto: register + wallet + link
+              </p>
+            </button>
             <button
               type="button"
               onClick={() => setSetupMode("existing")}
@@ -291,34 +327,262 @@ export function LaunchForm() {
               <div className="flex items-center gap-2 mb-1">
                 <Key className="h-4 w-4 text-primary" />
                 <span className="text-sm font-medium text-card-foreground">
-                  I have an API key
+                  I have a key
                 </span>
               </div>
               <p className="text-[10px] text-muted-foreground">
                 Already registered on Moltx
               </p>
             </button>
-            <button
-              type="button"
-              onClick={() => setSetupMode("register")}
-              className={`flex-1 rounded-lg border px-3 py-3 text-left transition-colors ${
-                setupMode === "register"
-                  ? "border-primary bg-primary/5"
-                  : "border-border bg-secondary hover:bg-secondary/80"
-              }`}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <UserPlus className="h-4 w-4 text-primary" />
-                <span className="text-sm font-medium text-card-foreground">
-                  Register new agent
-                </span>
-              </div>
-              <p className="text-[10px] text-muted-foreground">
-                Create a Moltx account
-              </p>
-            </button>
           </div>
 
+          {/* ── Auto-Setup Mode ── */}
+          {setupMode === "auto" && !setupResult && (
+            <div className="space-y-3">
+              <div className="rounded-md bg-primary/5 border border-primary/20 px-3 py-2">
+                <p className="text-[10px] text-primary leading-relaxed font-medium">
+                  This will automatically: register a Moltx agent, generate a
+                  new EVM wallet, and link it via EIP-712 signature. You will
+                  receive an API key and wallet credentials.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm text-muted-foreground">
+                  Agent Handle *
+                </Label>
+                <Input
+                  placeholder="my_token_agent"
+                  value={agentName}
+                  onChange={(e) => setAgentName(e.target.value)}
+                  className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground font-mono text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm text-muted-foreground">
+                  Display Name
+                </Label>
+                <Input
+                  placeholder="My Token Agent"
+                  value={agentDisplayName}
+                  onChange={(e) => setAgentDisplayName(e.target.value)}
+                  className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm text-muted-foreground">
+                  Agent Bio
+                </Label>
+                <Input
+                  placeholder="Token launcher on BSC via 4claw"
+                  value={agentBio}
+                  onChange={(e) => setAgentBio(e.target.value)}
+                  className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-sm"
+                />
+              </div>
+
+              <Button
+                onClick={handleAutoSetup}
+                disabled={!agentName.trim() || isSettingUp}
+                className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
+                size="lg"
+              >
+                {isSettingUp ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Setting up...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="mr-2 h-4 w-4" />
+                    Register + Generate Wallet + Link
+                  </>
+                )}
+              </Button>
+
+              {isSettingUp && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    <span>Registering agent on Moltx...</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Wallet className="h-3 w-3" />
+                    <span>Generating EVM wallet...</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Shield className="h-3 w-3" />
+                    <span>Signing EIP-712 challenge...</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Auto-Setup Result ── */}
+          {setupMode === "auto" && setupResult && (
+            <div className="space-y-3">
+              <div
+                className={`rounded-lg border p-4 ${
+                  setupResult.success && !setupResult.partial
+                    ? "border-chart-3/30 bg-chart-3/5"
+                    : setupResult.success && setupResult.partial
+                      ? "border-accent/30 bg-accent/5"
+                      : "border-destructive/30 bg-destructive/5"
+                }`}
+              >
+                <div className="flex items-start gap-2 mb-3">
+                  {setupResult.success && !setupResult.partial ? (
+                    <CheckCircle2 className="h-5 w-5 text-chart-3 shrink-0 mt-0.5" />
+                  ) : setupResult.success && setupResult.partial ? (
+                    <AlertCircle className="h-5 w-5 text-accent shrink-0 mt-0.5" />
+                  ) : (
+                    <XCircle className="h-5 w-5 text-destructive shrink-0 mt-0.5" />
+                  )}
+                  <p
+                    className={`text-xs leading-relaxed ${
+                      setupResult.success && !setupResult.partial
+                        ? "text-chart-3"
+                        : setupResult.partial
+                          ? "text-accent"
+                          : "text-destructive"
+                    }`}
+                  >
+                    {setupResult.message}
+                  </p>
+                </div>
+
+                {/* API Key */}
+                {setupResult.apiKey && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                        API Key
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleCopyText(setupResult.apiKey || "")
+                        }
+                        className="text-[10px] text-primary hover:underline"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <code className="block rounded bg-background border border-border px-3 py-2 text-[10px] font-mono text-accent break-all select-all">
+                      {setupResult.apiKey}
+                    </code>
+                  </div>
+                )}
+
+                {/* Wallet */}
+                {setupResult.wallet && (
+                  <div className="mt-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                        Wallet Address
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleCopyText(setupResult.wallet?.address || "")
+                        }
+                        className="text-[10px] text-primary hover:underline"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <code className="block rounded bg-background border border-border px-3 py-2 text-[10px] font-mono text-foreground break-all select-all">
+                      {setupResult.wallet.address}
+                    </code>
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                        Private Key
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowPrivateKey(!showPrivateKey)}
+                          className="text-[10px] text-muted-foreground hover:text-foreground"
+                        >
+                          {showPrivateKey ? (
+                            <EyeOff className="h-3 w-3" />
+                          ) : (
+                            <Eye className="h-3 w-3" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleCopyText(
+                              setupResult.wallet?.privateKey || ""
+                            )
+                          }
+                          className="text-[10px] text-primary hover:underline"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                    </div>
+                    <code className="block rounded bg-background border border-border px-3 py-2 text-[10px] font-mono text-foreground break-all select-all">
+                      {showPrivateKey
+                        ? setupResult.wallet.privateKey
+                        : "●".repeat(40)}
+                    </code>
+                  </div>
+                )}
+
+                {/* Setup log */}
+                {setupResult.log && setupResult.log.length > 0 && (
+                  <div className="mt-3 rounded bg-background border border-border px-3 py-2">
+                    <p className="text-[10px] font-medium text-muted-foreground mb-1">
+                      Setup Log
+                    </p>
+                    {setupResult.log.map((entry, i) => (
+                      <div
+                        key={`log-${i}`}
+                        className="flex items-center gap-1.5 text-[10px] text-muted-foreground"
+                      >
+                        <CheckCircle2 className="h-2.5 w-2.5 text-chart-3 shrink-0" />
+                        {entry}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2">
+                <p className="text-[10px] text-destructive leading-relaxed font-medium">
+                  SAVE YOUR API KEY AND PRIVATE KEY NOW. They cannot be retrieved
+                  again. The private key controls your linked wallet.
+                </p>
+              </div>
+
+              {setupResult.apiKey && (
+                <Button
+                  onClick={handleContinueToForm}
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
+                  size="lg"
+                >
+                  <Rocket className="mr-2 h-4 w-4" />
+                  Continue to Token Setup
+                </Button>
+              )}
+
+              {!setupResult.success && (
+                <Button
+                  variant="outline"
+                  onClick={() => setSetupResult(null)}
+                  className="w-full bg-transparent"
+                >
+                  Try Again
+                </Button>
+              )}
+            </div>
+          )}
+
+          {/* ── Existing Key Mode ── */}
           {setupMode === "existing" && (
             <div className="space-y-3">
               <div className="space-y-2">
@@ -329,15 +593,12 @@ export function LaunchForm() {
                   type="password"
                   placeholder="moltx_sk_..."
                   value={apiKey}
-                  onChange={(e) => {
-                    setApiKey(e.target.value);
-                    setApiKeySaved(false);
-                  }}
+                  onChange={(e) => setApiKey(e.target.value)}
                   className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground font-mono text-sm"
                 />
               </div>
               <Button
-                onClick={handleSaveKey}
+                onClick={handleSaveExistingKey}
                 disabled={!apiKey.trim()}
                 className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
               >
@@ -350,119 +611,15 @@ export function LaunchForm() {
                   Moltx. It is never stored.
                   <br />
                   <strong>Note:</strong> Posting requires a linked EVM wallet. If
-                  you have not linked one yet, visit{" "}
-                  <a
-                    href="https://moltx.io/evm_eip712.md"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-primary hover:underline"
-                  >
-                    Moltx EVM guide
-                  </a>{" "}
-                  first.
+                  you have not linked one yet, use the One-Click Setup instead.
                 </p>
               </div>
-            </div>
-          )}
-
-          {setupMode === "register" && (
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">
-                  Agent Handle *
-                </Label>
-                <Input
-                  placeholder="my_agent"
-                  value={regName}
-                  onChange={(e) => setRegName(e.target.value)}
-                  className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground font-mono text-sm"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">
-                  Display Name
-                </Label>
-                <Input
-                  placeholder="My AI Agent"
-                  value={regDisplayName}
-                  onChange={(e) => setRegDisplayName(e.target.value)}
-                  className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-sm"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">
-                  Agent Bio
-                </Label>
-                <Input
-                  placeholder="Token launcher on BSC"
-                  value={regDescription}
-                  onChange={(e) => setRegDescription(e.target.value)}
-                  className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-sm"
-                />
-              </div>
-              <Button
-                onClick={handleRegister}
-                disabled={!regName.trim() || isRegistering}
-                className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
-              >
-                {isRegistering ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <UserPlus className="mr-2 h-4 w-4" />
-                )}
-                Register Agent
-              </Button>
-
-              {registerResult && (
-                <div
-                  className={`rounded-lg border p-3 ${
-                    registerResult.success
-                      ? "border-chart-3/30 bg-chart-3/5"
-                      : "border-destructive/30 bg-destructive/5"
-                  }`}
-                >
-                  <p
-                    className={`text-xs ${registerResult.success ? "text-chart-3" : "text-destructive"}`}
-                  >
-                    {registerResult.message}
-                  </p>
-                  {registerResult.apiKey && (
-                    <div className="mt-2">
-                      <code className="block rounded bg-background border border-border px-3 py-2 text-[10px] font-mono text-accent break-all">
-                        {registerResult.apiKey}
-                      </code>
-                      <p className="mt-2 text-[10px] text-muted-foreground">
-                        Save this key. You will need to link an EVM wallet before
-                        posting.{" "}
-                        <a
-                          href="https://moltx.io/evm_eip712.md"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline"
-                        >
-                          Wallet linking guide
-                        </a>
-                      </p>
-                      <Button
-                        onClick={() => {
-                          setSetupMode("existing");
-                          setApiKeySaved(false);
-                        }}
-                        size="sm"
-                        className="mt-2 bg-primary text-primary-foreground hover:bg-primary/90"
-                      >
-                        Use this key to continue
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           )}
         </div>
       )}
 
-      {/* STEP: Token Details Form */}
+      {/* ═══════ STEP: Token Details ═══════ */}
       {currentStep === "form" && (
         <div className="space-y-4">
           {/* Connected badge */}
@@ -470,16 +627,17 @@ export function LaunchForm() {
             <CheckCircle2 className="h-3.5 w-3.5 text-chart-3" />
             <span className="text-xs text-chart-3 font-medium">
               Moltx connected
+              {agentWallet ? " + wallet linked" : ""}
             </span>
             <button
               type="button"
               onClick={() => {
                 setCurrentStep("setup");
-                setApiKeySaved(false);
+                setSetupResult(null);
               }}
               className="ml-auto text-[10px] text-muted-foreground hover:text-foreground"
             >
-              Change key
+              Change
             </button>
           </div>
 
@@ -715,7 +873,7 @@ export function LaunchForm() {
         </div>
       )}
 
-      {/* STEP: Review */}
+      {/* ═══════ STEP: Review ═══════ */}
       {currentStep === "review" && (
         <div className="space-y-4">
           <div className="rounded-lg border border-border bg-background p-4">
@@ -755,7 +913,7 @@ export function LaunchForm() {
             <div className="rounded-md bg-secondary/50 border border-border px-3 py-2">
               <p className="text-[10px] text-muted-foreground">Symbol</p>
               <p className="text-sm font-mono font-bold text-accent">
-                ${symbol.toUpperCase()}
+                {"$"}{symbol.toUpperCase()}
               </p>
             </div>
             {enableTax && (
@@ -806,7 +964,7 @@ export function LaunchForm() {
         </div>
       )}
 
-      {/* STEP: Posting / Result */}
+      {/* ═══════ STEP: Posting / Result ═══════ */}
       {currentStep === "posting" && (
         <div className="space-y-4">
           {isPosting && (
