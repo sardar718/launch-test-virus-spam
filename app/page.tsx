@@ -3,19 +3,34 @@
 import { useState, useCallback } from "react";
 import { Header } from "@/components/header";
 import { StatsBar } from "@/components/stats-bar";
-import { TrendingMemecoins } from "@/components/trending-memecoins";
+import { TrendingMemecoins, type TrendingToken } from "@/components/trending-memecoins";
 import { LaunchForm } from "@/components/launch-form";
 import { TokenFeed } from "@/components/token-feed";
 import { RecentLaunches } from "@/components/recent-launches";
 
-export default function Page() {
-  const [prefillName, setPrefillName] = useState("");
-  const [prefillSymbol, setPrefillSymbol] = useState("");
+export interface TokenPrefill {
+  name: string;
+  symbol: string;
+  imageUrl?: string;
+  website?: string;
+  description?: string;
+}
 
-  const handleSelectToken = useCallback((name: string, symbol: string) => {
-    setPrefillName(name);
-    setPrefillSymbol(symbol);
-    // Scroll to form
+export default function Page() {
+  const [prefill, setPrefill] = useState<TokenPrefill | null>(null);
+
+  const handleSelectToken = useCallback((token: TrendingToken) => {
+    const cleanName = token.name.replace(/\s*\/\s*.*$/, "").trim();
+    const cleanSymbol = token.symbol.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+
+    setPrefill({
+      name: cleanName,
+      symbol: cleanSymbol,
+      imageUrl: token.imageUrl || undefined,
+      website: token.website || undefined,
+      description: token.tokenDescription || undefined,
+    });
+
     document
       .getElementById("launch-form")
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -39,10 +54,7 @@ export default function Page() {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
           {/* Left: Launch Form + Recent Launches */}
           <div id="launch-form" className="space-y-4 lg:col-span-5">
-            <LaunchForm
-              prefillName={prefillName}
-              prefillSymbol={prefillSymbol}
-            />
+            <LaunchForm prefill={prefill} />
             <RecentLaunches />
           </div>
 

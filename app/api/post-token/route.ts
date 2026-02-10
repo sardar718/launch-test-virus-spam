@@ -1,73 +1,9 @@
 import { NextResponse } from "next/server";
 
-// Launchpad configs
-const LAUNCHPADS = {
-  "4claw": {
-    command: "!4clawd",
-    triggerUrl: "https://api.4claw.fun/api/launch",
-    chain: "bsc",
-    supportsTax: true,
-  },
-  kibu: {
-    command: "!kibu",
-    triggerUrl: null, // auto-scanned, no manual trigger needed
-    chain: "bsc", // default, also supports base
-    supportsTax: false,
-  },
-  clawnch: {
-    command: "!clawnch",
-    triggerUrl: "https://clawn.ch/api/launch", // only for moltbook
-    chain: "base",
-    supportsTax: false,
-  },
-} as const;
-
-type LaunchpadId = keyof typeof LAUNCHPADS;
-
-// Agent / platform configs
-const AGENTS = {
-  moltx: {
-    postUrl: "https://moltx.io/v1/posts",
-    authHeader: (key: string) => `Bearer ${key}`,
-    buildBody: (content: string) => ({ content }),
-    postIdPath: (data: Record<string, unknown>) =>
-      (data?.data as Record<string, unknown>)?.id ||
-      (data?.data as Record<string, unknown>)?.post &&
-        ((data?.data as Record<string, unknown>)?.post as Record<string, unknown>)?.id ||
-      data?.id,
-  },
-  moltbook: {
-    postUrl: "https://www.moltbook.com/api/v1/posts",
-    authHeader: (key: string) => `Bearer ${key}`,
-    buildBody: (content: string, opts?: { submolt?: string; title?: string }) => ({
-      submolt: opts?.submolt || "general",
-      title: opts?.title || "Token Launch",
-      content,
-    }),
-    postIdPath: (data: Record<string, unknown>) =>
-      (data?.post as Record<string, unknown>)?.id || data?.id,
-  },
-  "4claw_org": {
-    postUrl: "https://www.4claw.org/api/v1/posts",
-    authHeader: (key: string) => `Bearer ${key}`,
-    buildBody: (content: string) => ({
-      board: "crypto",
-      content,
-    }),
-    postIdPath: (data: Record<string, unknown>) => data?.id,
-  },
-  clawstr: {
-    postUrl: "https://clawstr.com/api/v1/posts",
-    authHeader: (key: string) => `Bearer ${key}`,
-    buildBody: (content: string) => ({
-      subclaw: "crypto",
-      content,
-    }),
-    postIdPath: (data: Record<string, unknown>) => data?.id,
-  },
-} as const;
-
-type AgentId = keyof typeof AGENTS;
+const MOLTX_API = "https://moltx.io/v1";
+const MOLTBOOK_API = "https://www.moltbook.com/api/v1";
+const FOURCLAW_API = "https://api.4claw.fun/api";
+const CLAWNCH_API = "https://clawn.ch/api";
 
 interface TokenData {
   name: string;
@@ -79,7 +15,6 @@ interface TokenData {
   twitter?: string;
   telegram?: string;
   chain?: string;
-  // 4claw tax fields
   tax?: number;
   funds?: number;
   burn?: number;
@@ -87,52 +22,59 @@ interface TokenData {
   lp?: number;
 }
 
+// Build the text content for the post
 function buildPostContent(
-  launchpad: LaunchpadId,
-  agent: AgentId,
-  token: TokenData
+  launchpad: string,
+  token: TokenData,
 ): string {
-  const lp = LAUNCHPADS[launchpad];
-  const chainField = token.chain || lp.chain;
+  const cmd =
+    launchpad === "4claw"
+      ? "!4clawd"
+      : launchpad === "kibu"
+        ? "!kibu"
+        : "!clawnch";
 
-  // For moltbook, use JSON inside code block (markdown-safe)
-  if (agent === "moltbook") {
-    const jsonObj: Record<string, unknown> = {
-      name: token.name,
-      symbol: token.symbol.toUpperCase(),
-      wallet: token.wallet,
-      description: token.description || "",
-      image: token.image || "",
-    };
-    if (token.website) jsonObj.website = token.website;
-    if (token.twitter) jsonObj.twitter = token.twitter;
-    if (launchpad === "kibu" || launchpad === "clawnch") {
-      jsonObj.chain = chainField;
-    }
-
-    return `${lp.command}\n\`\`\`json\n${JSON.stringify(jsonObj, null, 2)}\n\`\`\``;
-  }
-
-  // For moltx / 4claw.org / clawstr, use key:value format
-  let post = `${lp.command}\nname: ${token.name}\nsymbol: ${token.symbol.toUpperCase()}\nwallet: ${token.wallet}`;
+  let post = `${cmd}\nname: ${token.name}\nsymbol: ${token.symbol}\nwallet: ${token.wallet}`;
   if (token.description) post += `\ndescription: ${token.description}`;
   if (token.image) post += `\nimage: ${token.image}`;
   if (token.website) post += `\nwebsite: ${token.website}`;
   if (token.twitter) post += `\ntwitter: ${token.twitter}`;
   if (token.telegram && launchpad === "4claw")
     post += `\ntelegram: ${token.telegram}`;
+  if ((launchpad === "kibu" || launchpad === "clawnch") && token.chain)
+    post += `\nchain: ${token.chain}`;
 
-  // Chain field for kibu/clawnch
-  if (launchpad === "kibu" || launchpad === "clawnch") {
-    post += `\nchain: ${chainField}`;
-  }
-
-  // Tax config for 4claw only
-  if (launchpad === "4claw" && lp.supportsTax && token.tax) {
+  // 4claw tax config
+  if (launchpad === "4claw" && token.tax) {
     post += `\n\ntax: ${token.tax}\nfunds: ${token.funds || 97}\nburn: ${token.burn || 1}\nholders: ${token.holders || 1}\nlp: ${token.lp || 1}`;
   }
 
   return post;
+}
+
+// Build Moltbook-safe content (JSON in code block for markdown safety)
+function buildMoltbookContent(
+  launchpad: string,
+  token: TokenData,
+): string {
+  const cmd =
+    launchpad === "4claw"
+      ? "!4clawd"
+      : launchpad === "kibu"
+        ? "!kibu"
+        : "!clawnch";
+
+  const jsonObj: Record<string, string | number> = {
+    name: token.name,
+    symbol: token.symbol,
+    wallet: token.wallet,
+  };
+  if (token.description) jsonObj.description = token.description;
+  if (token.image) jsonObj.image = token.image;
+  if (token.website) jsonObj.website = token.website;
+  if (token.twitter) jsonObj.twitter = token.twitter;
+
+  return `${cmd}\n\`\`\`json\n${JSON.stringify(jsonObj, null, 2)}\n\`\`\``;
 }
 
 export async function POST(request: Request) {
@@ -142,157 +84,294 @@ export async function POST(request: Request) {
       launchpad,
       agent,
       apiKey,
-      token,
       moltbookSubmolt,
+      token,
     }: {
-      launchpad: LaunchpadId;
-      agent: AgentId;
+      launchpad: string;
+      agent: string;
       apiKey: string;
-      token: TokenData;
       moltbookSubmolt?: string;
+      token: TokenData;
     } = body;
 
-    // Validate
-    if (!LAUNCHPADS[launchpad]) {
+    if (!launchpad || !agent || !apiKey || !token?.name || !token?.symbol) {
       return NextResponse.json(
-        { error: `Unknown launchpad: ${launchpad}` },
-        { status: 400 }
-      );
-    }
-    if (!AGENTS[agent]) {
-      return NextResponse.json(
-        { error: `Unknown agent/platform: ${agent}` },
-        { status: 400 }
-      );
-    }
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "API key is required" },
-        { status: 400 }
-      );
-    }
-    if (!token?.name || !token?.symbol || !token?.wallet) {
-      return NextResponse.json(
-        { error: "Token name, symbol, and wallet are required" },
-        { status: 400 }
+        { error: "Missing required fields" },
+        { status: 400 },
       );
     }
 
-    const agentConfig = AGENTS[agent];
-    const content = buildPostContent(launchpad, agent, token);
+    // ── POST TO MOLTX ──────────────────────────────────────────
+    if (agent === "moltx") {
+      const content = buildPostContent(launchpad, token);
 
-    // Determine submolt for moltbook
-    let submolt = moltbookSubmolt;
-    if (agent === "moltbook" && !submolt) {
-      if (launchpad === "kibu") submolt = "kibu";
-      else if (launchpad === "clawnch") submolt = "clawnch";
-      else submolt = "general";
-    }
-
-    // Step 1: Post to the agent platform
-    const postBody =
-      agent === "moltbook"
-        ? agentConfig.buildBody(content, {
-            submolt,
-            title: `Launching ${token.symbol.toUpperCase()}!`,
-          })
-        : agentConfig.buildBody(content);
-
-    const postRes = await fetch(agentConfig.postUrl, {
-      method: "POST",
-      headers: {
-        Authorization: agentConfig.authHeader(apiKey),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(postBody),
-    });
-
-    const postData = await postRes.json();
-
-    if (!postRes.ok) {
-      return NextResponse.json(
-        {
-          error:
-            postData.error || postData.message || `Failed to post on ${agent}`,
-          details: postData,
-          step: "post",
+      const res = await fetch(`${MOLTX_API}/posts`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
         },
-        { status: postRes.status }
+        body: JSON.stringify({ content }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        return NextResponse.json(
+          {
+            error:
+              data?.error || data?.message || `Moltx returned ${res.status}`,
+            details: data,
+          },
+          { status: res.status },
+        );
+      }
+
+      const postId =
+        data?.data?.id || data?.id || data?.data?.post?.id || data?.post?.id;
+
+      // Trigger the launchpad indexer
+      const triggerResult = await triggerLaunchpad(
+        launchpad,
+        "moltx",
+        postId,
+        apiKey,
       );
+
+      return NextResponse.json({
+        success: true,
+        message: `Posted to Moltx. ${triggerResult.message}`,
+        postId,
+        autoScanned:
+          launchpad !== "4claw" &&
+          (agent === "moltx" ||
+            agent === "4claw_org" ||
+            agent === "clawstr"),
+        triggerResult,
+      });
     }
 
-    const postId = agentConfig.postIdPath(postData);
+    // ── POST TO MOLTBOOK ────────────────────────────────────────
+    if (agent === "moltbook") {
+      const content = buildMoltbookContent(launchpad, token);
 
-    // Step 2: Trigger launchpad indexer (if applicable)
-    const lpConfig = LAUNCHPADS[launchpad];
-    let launchTriggered = false;
-    let launchData = null;
+      const res = await fetch(`${MOLTBOOK_API}/posts`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          submolt: moltbookSubmolt || (launchpad === "clawnch" ? "clawnch" : launchpad === "kibu" ? "kibu" : "crypto"),
+          title: `Launching ${token.symbol} token!`,
+          content,
+        }),
+      });
 
-    // 4claw always needs manual trigger
-    if (launchpad === "4claw" && postId) {
-      const triggerPayload =
-        agent === "moltbook"
-          ? { url: `https://www.moltbook.com/post/${postId}` }
-          : { platform: agent === "moltx" ? "moltx" : "4claw", post_id: postId };
+      const data = await res.json();
 
-      try {
-        const triggerRes = await fetch(lpConfig.triggerUrl!, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(triggerPayload),
-        });
-        launchData = await triggerRes.json();
-        launchTriggered = triggerRes.ok;
-      } catch {
-        // Trigger failed, but post was created
+      if (!res.ok) {
+        return NextResponse.json(
+          {
+            error:
+              data?.error ||
+              data?.message ||
+              `Moltbook returned ${res.status}`,
+            details: data,
+          },
+          { status: res.status },
+        );
       }
+
+      const postId =
+        data?.post?.id || data?.data?.id || data?.id;
+
+      // Trigger the launchpad
+      const triggerResult = await triggerLaunchpad(
+        launchpad,
+        "moltbook",
+        postId,
+        apiKey,
+      );
+
+      return NextResponse.json({
+        success: true,
+        message: `Posted to Moltbook. ${triggerResult.message}`,
+        postId,
+        autoScanned: false,
+        triggerResult,
+      });
     }
 
-    // clawnch needs API call only for moltbook
-    if (launchpad === "clawnch" && agent === "moltbook" && postId && apiKey) {
-      try {
-        const triggerRes = await fetch(lpConfig.triggerUrl!, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            moltbook_key: apiKey,
-            post_id: postId,
-          }),
-        });
-        launchData = await triggerRes.json();
-        launchTriggered = triggerRes.ok;
-      } catch {
-        // ok
+    // ── POST TO 4CLAW.ORG ──────────────────────────────────────
+    if (agent === "4claw_org") {
+      // 4claw.org posts to /crypto/ board -- auto-scanned by launchpads
+      const content = buildPostContent(launchpad, token);
+
+      // 4claw.org uses the Moltx API key for authentication
+      const res = await fetch("https://www.4claw.org/api/v1/threads", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          board: "crypto",
+          content,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        return NextResponse.json(
+          {
+            error:
+              data?.error ||
+              data?.message ||
+              `4claw.org returned ${res.status}`,
+            details: data,
+          },
+          { status: res.status },
+        );
       }
+
+      return NextResponse.json({
+        success: true,
+        message: `Posted to 4claw.org /crypto/ board. ${launchpad === "clawnch" ? "Clawnch" : launchpad === "kibu" ? "Kibu" : "4claw"} scans every minute -- your token will deploy automatically.`,
+        postId: data?.id || data?.thread?.id,
+        autoScanned: true,
+      });
     }
 
-    // kibu and clawnch (via moltx/4claw.org/clawstr) are auto-scanned
-    const autoScanned =
-      (launchpad === "kibu") ||
-      (launchpad === "clawnch" && agent !== "moltbook");
+    // ── POST TO CLAWSTR ─────────────────────────────────────────
+    if (agent === "clawstr") {
+      const content = buildPostContent(launchpad, token);
 
-    return NextResponse.json({
-      success: true,
-      postId,
-      content,
-      launchpad,
-      agent,
-      launchTriggered,
-      autoScanned,
-      launchData,
-      message: autoScanned
-        ? `Posted on ${agent}! ${launchpad} will auto-scan and launch within 1 minute.`
-        : launchTriggered
-          ? `Posted on ${agent} and ${launchpad} launch triggered!`
-          : postId
-            ? `Posted on ${agent}. Trigger the ${launchpad} indexer manually if needed.`
-            : `Posted on ${agent}. Token may be processed via auto-scan.`,
-    });
+      const res = await fetch("https://clawstr.com/api/v1/posts", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ content }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        return NextResponse.json(
+          {
+            error:
+              data?.error ||
+              data?.message ||
+              `Clawstr returned ${res.status}`,
+            details: data,
+          },
+          { status: res.status },
+        );
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `Posted to Clawstr (Nostr relays). ${launchpad === "clawnch" ? "Clawnch" : launchpad === "kibu" ? "Kibu" : "4claw"} scans every minute -- your token will deploy automatically.`,
+        postId: data?.id || data?.event_id,
+        autoScanned: true,
+      });
+    }
+
+    return NextResponse.json(
+      { error: `Unknown agent: ${agent}` },
+      { status: 400 },
+    );
   } catch (error) {
     console.error("Post token error:", error);
     return NextResponse.json(
       { error: "Failed to post token", details: String(error) },
-      { status: 500 }
+      { status: 500 },
     );
+  }
+}
+
+// Trigger the correct launchpad indexer after posting
+async function triggerLaunchpad(
+  launchpad: string,
+  source: string,
+  postId: string | undefined,
+  apiKey: string,
+): Promise<{ success: boolean; message: string }> {
+  if (!postId)
+    return {
+      success: false,
+      message: "No post ID returned -- launchpad may still auto-scan.",
+    };
+
+  try {
+    if (launchpad === "4claw") {
+      // 4claw: trigger indexer directly
+      const res = await fetch(`${FOURCLAW_API}/launch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          source === "moltbook"
+            ? { url: `https://www.moltbook.com/post/${postId}` }
+            : { platform: "moltx", post_id: postId },
+        ),
+      });
+      const data = await res.json();
+      if (res.ok && data.success !== false) {
+        return {
+          success: true,
+          message: "4claw indexer triggered. Token entering review queue.",
+        };
+      }
+      return {
+        success: false,
+        message: `4claw trigger returned: ${data?.error || data?.message || res.status}. Post is still live and may be picked up.`,
+      };
+    }
+
+    if (launchpad === "clawnch" && source === "moltbook") {
+      // Clawnch Moltbook: must call their API
+      const res = await fetch(`${CLAWNCH_API}/launch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          moltbook_key: apiKey,
+          post_id: postId,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        return {
+          success: true,
+          message: `Clawnch deployed! Contract: ${data.token_address || "pending"}`,
+        };
+      }
+      return {
+        success: false,
+        message: `Clawnch launch returned: ${data?.error || res.status}`,
+      };
+    }
+
+    // Kibu and auto-scanned agents: no trigger needed
+    if (
+      launchpad === "kibu" ||
+      source === "moltx" ||
+      source === "4claw_org" ||
+      source === "clawstr"
+    ) {
+      return {
+        success: true,
+        message: `${launchpad === "kibu" ? "Kibu" : launchpad === "clawnch" ? "Clawnch" : "4claw"} auto-scans every minute. Your token will deploy automatically.`,
+      };
+    }
+
+    return { success: true, message: "Post created. Awaiting deployment." };
+  } catch (error) {
+    return {
+      success: false,
+      message: `Trigger failed: ${String(error)}. Post is still live.`,
+    };
   }
 }

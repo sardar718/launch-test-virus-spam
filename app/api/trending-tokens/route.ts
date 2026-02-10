@@ -18,8 +18,8 @@ export async function GET(request: Request) {
   try {
     const endpoint =
       type === "new"
-        ? `${GECKO_BASE}/networks/${network}/new_pools?page=1`
-        : `${GECKO_BASE}/networks/${network}/trending_pools?page=1`;
+        ? `${GECKO_BASE}/networks/${network}/new_pools?page=1&include=base_token`
+        : `${GECKO_BASE}/networks/${network}/trending_pools?page=1&include=base_token`;
 
     const res = await fetch(endpoint, {
       headers: { Accept: "application/json;version=20230203" },
@@ -54,14 +54,36 @@ export async function GET(request: Request) {
       };
     }
 
+    // Build a map of included token data (GeckoTerminal includes base token info)
+    const includedTokens: Record<string, { name: string; symbol: string; image_url: string | null; websites: string[]; description: string | null }> = {};
+    if (data.included) {
+      for (const inc of data.included) {
+        if (inc.type === "token") {
+          includedTokens[inc.id] = {
+            name: inc.attributes?.name || "",
+            symbol: inc.attributes?.symbol || "",
+            image_url: inc.attributes?.image_url || null,
+            websites: inc.attributes?.websites || [],
+            description: inc.attributes?.description || null,
+          };
+        }
+      }
+    }
+
     const tokens = (data.data || []).slice(0, 30).map((pool: GeckoPool) => {
       const a = pool.attributes;
       const nameParts = a.name.split(" / ");
+      const baseTokenId = pool.relationships?.base_token?.data?.id;
+      const tokenInfo = baseTokenId ? includedTokens[baseTokenId] : null;
+
       return {
         id: pool.id,
-        name: nameParts[0] || a.name,
+        name: tokenInfo?.name || nameParts[0] || a.name,
         quote: nameParts[1] || "",
-        symbol: (nameParts[0] || "").split(" ").pop() || nameParts[0],
+        symbol: tokenInfo?.symbol || (nameParts[0] || "").split(" ").pop() || nameParts[0],
+        imageUrl: tokenInfo?.image_url || null,
+        website: tokenInfo?.websites?.[0] || null,
+        tokenDescription: tokenInfo?.description || null,
         priceUsd: a.base_token_price_usd,
         priceChange1h: a.price_change_percentage?.h1,
         priceChange24h: a.price_change_percentage?.h24,

@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
-interface TrendingToken {
+export interface TrendingToken {
   id: string;
   name: string;
   symbol: string;
@@ -29,6 +29,9 @@ interface TrendingToken {
   chain: string;
   poolAddress: string;
   dex: string;
+  imageUrl: string | null;
+  website: string | null;
+  tokenDescription: string | null;
 }
 
 const CHAINS = [
@@ -63,7 +66,7 @@ function formatAge(dateStr: string | null): string {
 }
 
 interface Props {
-  onSelectToken?: (name: string, symbol: string) => void;
+  onSelectToken?: (token: TrendingToken) => void;
 }
 
 export function TrendingMemecoins({ onSelectToken }: Props) {
@@ -73,7 +76,7 @@ export function TrendingMemecoins({ onSelectToken }: Props) {
   const { data, isLoading, mutate } = useSWR(
     `/api/trending-tokens?chain=${chain}&type=${feedType}`,
     fetcher,
-    { refreshInterval: 60000, revalidateOnFocus: false }
+    { refreshInterval: 60000, revalidateOnFocus: false },
   );
 
   const tokens: TrendingToken[] = data?.tokens || [];
@@ -81,14 +84,10 @@ export function TrendingMemecoins({ onSelectToken }: Props) {
   const handleSelect = useCallback(
     (t: TrendingToken) => {
       if (onSelectToken) {
-        const cleanName = t.name.replace(/\s*\/\s*.*$/, "").trim();
-        const cleanSymbol = t.symbol
-          .replace(/[^a-zA-Z0-9]/g, "")
-          .toUpperCase();
-        onSelectToken(cleanName, cleanSymbol);
+        onSelectToken(t);
       }
     },
-    [onSelectToken]
+    [onSelectToken],
   );
 
   return (
@@ -196,7 +195,17 @@ export function TrendingMemecoins({ onSelectToken }: Props) {
                 className="group flex shrink-0 flex-col rounded-lg border border-border bg-background px-3 py-2.5 text-left transition-all hover:border-primary/40 hover:bg-primary/5 active:scale-[0.98] min-w-[150px]"
               >
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-xs font-semibold text-card-foreground truncate max-w-[90px]">
+                  {t.imageUrl && (
+                    <img
+                      src={t.imageUrl || "/placeholder.svg"}
+                      alt=""
+                      className="h-4 w-4 rounded-full object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = "none";
+                      }}
+                    />
+                  )}
+                  <span className="text-xs font-semibold text-card-foreground truncate max-w-[80px]">
                     {t.name}
                   </span>
                   <span

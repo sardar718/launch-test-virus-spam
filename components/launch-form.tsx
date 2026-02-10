@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -27,6 +27,7 @@ import {
   EyeOff,
   Sparkles,
 } from "lucide-react";
+import type { TokenPrefill } from "@/app/page";
 
 // ─── Platform definitions ─────────────────────────────────────
 const DEFAULT_ADMIN = "0x9c6111C77CBE545B9703243F895EB593f2721C7a";
@@ -50,6 +51,7 @@ interface AgentInfo {
   label: string;
   url: string;
   note: string;
+  requiresEvmWallet: boolean;
 }
 
 const LAUNCHPADS: Record<LaunchpadId, LaunchpadInfo> = {
@@ -89,21 +91,29 @@ const LAUNCHPADS: Record<LaunchpadId, LaunchpadInfo> = {
 };
 
 const AGENTS: Record<AgentId, AgentInfo> = {
-  moltx: { label: "Moltx", url: "https://moltx.io", note: "Auto-scanned" },
+  moltx: {
+    label: "Moltx",
+    url: "https://moltx.io",
+    note: "Auto-scanned",
+    requiresEvmWallet: true,
+  },
   moltbook: {
     label: "Moltbook",
     url: "https://www.moltbook.com",
     note: "API trigger",
+    requiresEvmWallet: false,
   },
   "4claw_org": {
     label: "4claw.org",
     url: "https://www.4claw.org",
     note: "Auto-scanned",
+    requiresEvmWallet: false,
   },
   clawstr: {
     label: "Clawstr",
     url: "https://clawstr.com",
     note: "Nostr relays",
+    requiresEvmWallet: false,
   },
 };
 
@@ -133,11 +143,10 @@ interface PostResult {
 
 // ─── Component ────────────────────────────────────────────────
 interface LaunchFormProps {
-  prefillName?: string;
-  prefillSymbol?: string;
+  prefill?: TokenPrefill | null;
 }
 
-export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
+export function LaunchForm({ prefill }: LaunchFormProps) {
   // Platform state
   const [launchpad, setLaunchpad] = useState<LaunchpadId>("4claw");
   const [agent, setAgent] = useState<AgentId>("moltx");
@@ -153,8 +162,8 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
   const [setupMode, setSetupMode] = useState<"auto" | "existing">("auto");
 
   // Token form state
-  const [name, setName] = useState(prefillName || "");
-  const [symbol, setSymbol] = useState(prefillSymbol || "");
+  const [name, setName] = useState("");
+  const [symbol, setSymbol] = useState("");
   const [description, setDescription] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [website, setWebsite] = useState("");
@@ -180,28 +189,49 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
 
   // Derived
   const lpInfo = LAUNCHPADS[launchpad];
+  const agentInfo = AGENTS[agent];
+  const needsEvmWallet = agentInfo.requiresEvmWallet;
   const activeWallet = useCustomWallet ? customWallet : DEFAULT_ADMIN;
   const taxDistTotal = funds + burn + holders + lp;
   const taxDistValid = taxDistTotal === 100;
 
-  // Update prefills
-  if (prefillName && prefillName !== name && currentStep === "setup") {
-    setName(prefillName);
-  }
-  if (prefillSymbol && prefillSymbol !== symbol && currentStep === "setup") {
-    setSymbol(prefillSymbol);
-  }
+  // Handle prefill from trending tokens -- fill ALL available data
+  useEffect(() => {
+    if (prefill) {
+      setName(prefill.name);
+      setSymbol(prefill.symbol);
+      if (prefill.imageUrl) setImageUrl(prefill.imageUrl);
+      if (prefill.website) {
+        setWebsite(prefill.website);
+        setShowAdvanced(true);
+      }
+      if (prefill.description) setDescription(prefill.description);
+    }
+  }, [prefill]);
 
   // When launchpad changes, reset agent to first available
-  function handleLaunchpadChange(lp: LaunchpadId) {
-    setLaunchpad(lp);
-    const availableAgents = LAUNCHPADS[lp].agents;
+  function handleLaunchpadChange(id: LaunchpadId) {
+    setLaunchpad(id);
+    const availableAgents = LAUNCHPADS[id].agents;
     if (!availableAgents.includes(agent)) {
       setAgent(availableAgents[0]);
     }
-    setTokenChain(LAUNCHPADS[lp].chain);
-    // Reset tax for non-4claw
-    if (lp !== "4claw") setEnableTax(false);
+    setTokenChain(LAUNCHPADS[id].chain);
+    if (id !== "4claw") setEnableTax(false);
+    // Reset setup when switching
+    setSetupResult(null);
+    setApiKey("");
+    setAgentWallet(null);
+    setCurrentStep("setup");
+  }
+
+  function handleAgentChange(id: AgentId) {
+    setAgent(id);
+    // Reset setup when switching agents (different requirements)
+    setSetupResult(null);
+    setApiKey("");
+    setAgentWallet(null);
+    setCurrentStep("setup");
   }
 
   // ── AI Description ──────────────────────────────────────────
@@ -223,7 +253,7 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
     }
   }
 
-  // ── Auto-setup ──────────────────────────────────────────────
+  // ── Auto-setup (only for Moltx -- registers agent + generates wallet + links via EIP-712) ──
   async function handleAutoSetup() {
     const agentHandle = name.trim()
       ? name.trim().toLowerCase().replace(/[^a-z0-9]/g, "_")
@@ -265,7 +295,6 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
 
   // ── Post token ──────────────────────────────────────────────
   const buildPreviewContent = useCallback((): string => {
-    const lp = LAUNCHPADS[launchpad];
     const cmd =
       launchpad === "4claw"
         ? "!4clawd"
@@ -281,7 +310,7 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
     if (telegram && launchpad === "4claw") post += `\ntelegram: ${telegram}`;
     if (launchpad === "kibu" || launchpad === "clawnch")
       post += `\nchain: ${tokenChain}`;
-    if (launchpad === "4claw" && enableTax && lp.supportsTax)
+    if (launchpad === "4claw" && enableTax && lpInfo.supportsTax)
       post += `\n\ntax: ${tax}\nfunds: ${funds}\nburn: ${burn}\nholders: ${holders}\nlp: ${lp}`;
     return post;
   }, [
@@ -301,6 +330,7 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
     burn,
     holders,
     lp,
+    lpInfo.supportsTax,
   ]);
 
   async function handlePost() {
@@ -426,7 +456,7 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
                   {info.fee}
                 </p>
               </button>
-            )
+            ),
           )}
         </div>
       </div>
@@ -443,7 +473,7 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
               <button
                 key={agentId}
                 type="button"
-                onClick={() => setAgent(agentId)}
+                onClick={() => handleAgentChange(agentId)}
                 className={`rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
                   agent === agentId
                     ? "border-primary bg-primary/10 text-primary"
@@ -508,32 +538,44 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
       {/* ═══════ STEP: Setup ═══════ */}
       {currentStep === "setup" && (
         <div className="space-y-3">
+          {/* Info badge about what this agent needs */}
+          <div className="rounded-md bg-secondary/50 border border-border px-3 py-2">
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              <span className="font-medium text-card-foreground">{agentInfo.label}</span>
+              {needsEvmWallet
+                ? " requires a Moltx API key with a linked EVM wallet to post. Use one-click setup or enter an existing key."
+                : " requires an API key to post. No EVM wallet registration needed."}
+            </p>
+          </div>
+
           {/* Mode tabs */}
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => setSetupMode("auto")}
-              className={`flex-1 rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                setupMode === "auto"
-                  ? "border-primary bg-primary/5"
-                  : "border-border bg-secondary hover:bg-secondary/80"
-              }`}
-            >
-              <div className="flex items-center gap-2 mb-0.5">
-                <Zap className="h-3.5 w-3.5 text-primary" />
-                <span className="text-xs font-medium text-card-foreground">
-                  One-Click Setup
-                </span>
-              </div>
-              <p className="text-[9px] text-muted-foreground">
-                Register agent as token name + wallet + link
-              </p>
-            </button>
+            {needsEvmWallet && (
+              <button
+                type="button"
+                onClick={() => setSetupMode("auto")}
+                className={`flex-1 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                  setupMode === "auto"
+                    ? "border-primary bg-primary/5"
+                    : "border-border bg-secondary hover:bg-secondary/80"
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-0.5">
+                  <Zap className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-xs font-medium text-card-foreground">
+                    One-Click Setup
+                  </span>
+                </div>
+                <p className="text-[9px] text-muted-foreground">
+                  Register agent + wallet + EIP-712 link
+                </p>
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setSetupMode("existing")}
               className={`flex-1 rounded-lg border px-3 py-2.5 text-left transition-colors ${
-                setupMode === "existing"
+                setupMode === "existing" || !needsEvmWallet
                   ? "border-primary bg-primary/5"
                   : "border-border bg-secondary hover:bg-secondary/80"
               }`}
@@ -541,22 +583,23 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
               <div className="flex items-center gap-2 mb-0.5">
                 <Key className="h-3.5 w-3.5 text-primary" />
                 <span className="text-xs font-medium text-card-foreground">
-                  I have a key
+                  {needsEvmWallet ? "I have a key" : "Enter API Key"}
                 </span>
               </div>
               <p className="text-[9px] text-muted-foreground">
-                Enter existing API key
+                {needsEvmWallet ? "Enter existing Moltx API key" : `Enter your ${agentInfo.label} API key`}
               </p>
             </button>
           </div>
 
-          {/* Auto-setup */}
-          {setupMode === "auto" && !setupResult && (
+          {/* Auto-setup -- ONLY for Moltx agent */}
+          {needsEvmWallet && setupMode === "auto" && !setupResult && (
             <div className="space-y-2.5">
               <div className="rounded-md bg-primary/5 border border-primary/20 px-3 py-2">
                 <p className="text-[10px] text-primary leading-relaxed font-medium">
-                  Registers a Moltx agent named after your token, generates a new
-                  EVM wallet, and links it via EIP-712 signature. All automatic.
+                  Registers a Moltx agent named after your token, generates a
+                  new EVM wallet, and links it via EIP-712 signature. All
+                  automatic.
                 </p>
               </div>
 
@@ -580,21 +623,32 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
 
               {isSettingUp && (
                 <div className="space-y-1.5">
-                  {["Registering agent...", "Generating EVM wallet...", "Signing EIP-712 challenge..."].map(
-                    (msg, i) => (
-                      <div key={`step-${i}`} className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                        {i === 0 ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : i === 1 ? <Wallet className="h-2.5 w-2.5" /> : <Shield className="h-2.5 w-2.5" />}
-                        {msg}
-                      </div>
-                    )
-                  )}
+                  {[
+                    "Registering agent...",
+                    "Generating EVM wallet...",
+                    "Signing EIP-712 challenge...",
+                  ].map((msg, i) => (
+                    <div
+                      key={`step-${i}`}
+                      className="flex items-center gap-2 text-[10px] text-muted-foreground"
+                    >
+                      {i === 0 ? (
+                        <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                      ) : i === 1 ? (
+                        <Wallet className="h-2.5 w-2.5" />
+                      ) : (
+                        <Shield className="h-2.5 w-2.5" />
+                      )}
+                      {msg}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
           )}
 
           {/* Auto-setup result */}
-          {setupMode === "auto" && setupResult && (
+          {needsEvmWallet && setupMode === "auto" && setupResult && (
             <div className="space-y-3">
               <div
                 className={`rounded-lg border p-3 ${
@@ -609,7 +663,9 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
                   ) : (
                     <XCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
                   )}
-                  <p className={`text-[10px] leading-relaxed ${setupResult.success ? "text-chart-3" : "text-destructive"}`}>
+                  <p
+                    className={`text-[10px] leading-relaxed ${setupResult.success ? "text-chart-3" : "text-destructive"}`}
+                  >
                     {setupResult.message}
                   </p>
                 </div>
@@ -617,31 +673,73 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
                 {setupResult.apiKey && (
                   <div className="space-y-1.5 mt-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">API Key</span>
-                      <button type="button" onClick={() => copyText(setupResult.apiKey || "")} className="text-[9px] text-primary hover:underline">Copy</button>
+                      <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
+                        API Key
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => copyText(setupResult.apiKey || "")}
+                        className="text-[9px] text-primary hover:underline"
+                      >
+                        Copy
+                      </button>
                     </div>
-                    <code className="block rounded bg-background border border-border px-2 py-1.5 text-[9px] font-mono text-accent break-all select-all">{setupResult.apiKey}</code>
+                    <code className="block rounded bg-background border border-border px-2 py-1.5 text-[9px] font-mono text-accent break-all select-all">
+                      {setupResult.apiKey}
+                    </code>
                   </div>
                 )}
 
                 {setupResult.wallet && (
                   <div className="mt-2 space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">Wallet</span>
-                      <button type="button" onClick={() => copyText(setupResult.wallet?.address || "")} className="text-[9px] text-primary hover:underline">Copy</button>
+                      <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
+                        Wallet
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          copyText(setupResult.wallet?.address || "")
+                        }
+                        className="text-[9px] text-primary hover:underline"
+                      >
+                        Copy
+                      </button>
                     </div>
-                    <code className="block rounded bg-background border border-border px-2 py-1.5 text-[9px] font-mono text-foreground break-all select-all">{setupResult.wallet.address}</code>
+                    <code className="block rounded bg-background border border-border px-2 py-1.5 text-[9px] font-mono text-foreground break-all select-all">
+                      {setupResult.wallet.address}
+                    </code>
                     <div className="flex items-center justify-between">
-                      <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">Private Key</span>
+                      <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider">
+                        Private Key
+                      </span>
                       <div className="flex items-center gap-1.5">
-                        <button type="button" onClick={() => setShowPrivateKey(!showPrivateKey)} className="text-muted-foreground hover:text-foreground">
-                          {showPrivateKey ? <EyeOff className="h-2.5 w-2.5" /> : <Eye className="h-2.5 w-2.5" />}
+                        <button
+                          type="button"
+                          onClick={() => setShowPrivateKey(!showPrivateKey)}
+                          className="text-muted-foreground hover:text-foreground"
+                        >
+                          {showPrivateKey ? (
+                            <EyeOff className="h-2.5 w-2.5" />
+                          ) : (
+                            <Eye className="h-2.5 w-2.5" />
+                          )}
                         </button>
-                        <button type="button" onClick={() => copyText(setupResult.wallet?.privateKey || "")} className="text-[9px] text-primary hover:underline">Copy</button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            copyText(setupResult.wallet?.privateKey || "")
+                          }
+                          className="text-[9px] text-primary hover:underline"
+                        >
+                          Copy
+                        </button>
                       </div>
                     </div>
                     <code className="block rounded bg-background border border-border px-2 py-1.5 text-[9px] font-mono text-foreground break-all select-all">
-                      {showPrivateKey ? setupResult.wallet.privateKey : "".padStart(40, "x")}
+                      {showPrivateKey
+                        ? setupResult.wallet.privateKey
+                        : "".padStart(40, "x")}
                     </code>
                   </div>
                 )}
@@ -649,7 +747,10 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
                 {setupResult.log && setupResult.log.length > 0 && (
                   <div className="mt-2 rounded bg-background border border-border px-2 py-1.5">
                     {setupResult.log.map((entry, i) => (
-                      <div key={`log-${i}`} className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                      <div
+                        key={`log-${i}`}
+                        className="flex items-center gap-1 text-[9px] text-muted-foreground"
+                      >
                         <CheckCircle2 className="h-2 w-2 text-chart-3 shrink-0" />
                         {entry}
                       </div>
@@ -660,35 +761,59 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
 
               <div className="rounded-md bg-destructive/10 border border-destructive/20 px-3 py-2">
                 <p className="text-[9px] text-destructive leading-relaxed font-medium">
-                  SAVE YOUR API KEY AND PRIVATE KEY. They cannot be retrieved again.
+                  SAVE YOUR API KEY AND PRIVATE KEY. They cannot be retrieved
+                  again.
                 </p>
               </div>
 
               {setupResult.apiKey && (
-                <Button onClick={() => setCurrentStep("form")} className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-semibold">
+                <Button
+                  onClick={() => setCurrentStep("form")}
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
+                >
                   <Rocket className="mr-2 h-4 w-4" />
                   Continue to Token Details
                 </Button>
               )}
               {!setupResult.success && (
-                <Button variant="outline" onClick={() => setSetupResult(null)} className="w-full bg-transparent">Try Again</Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setSetupResult(null)}
+                  className="w-full bg-transparent"
+                >
+                  Try Again
+                </Button>
               )}
             </div>
           )}
 
-          {/* Existing key */}
-          {setupMode === "existing" && (
+          {/* Existing key -- shown for ALL agents (Moltx in "existing" mode, others always) */}
+          {(setupMode === "existing" || !needsEvmWallet) && (
             <div className="space-y-2.5">
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">API Key</Label>
+                <Label className="text-xs text-muted-foreground">
+                  {needsEvmWallet ? "Moltx API Key" : `${agentInfo.label} API Key`}
+                </Label>
                 <Input
                   type="password"
-                  placeholder="moltx_sk_... or moltbook_..."
+                  placeholder={
+                    agent === "moltx"
+                      ? "moltx_sk_..."
+                      : agent === "moltbook"
+                        ? "moltbook_..."
+                        : "Your API key..."
+                  }
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground font-mono text-sm"
                 />
               </div>
+              {!needsEvmWallet && (
+                <p className="text-[9px] text-muted-foreground leading-relaxed">
+                  No EVM wallet linking needed for {agentInfo.label}. Just enter
+                  your API key to start posting.
+                </p>
+              )}
               <Button
                 onClick={() => apiKey.trim() && setCurrentStep("form")}
                 disabled={!apiKey.trim()}
@@ -709,9 +834,17 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
           <div className="flex items-center gap-2 rounded-md bg-chart-3/10 border border-chart-3/20 px-3 py-1.5">
             <CheckCircle2 className="h-3 w-3 text-chart-3" />
             <span className="text-[10px] text-chart-3 font-medium">
-              {AGENTS[agent].label} connected | {lpInfo.label} ({tokenChain.toUpperCase()})
+              {agentInfo.label} connected | {lpInfo.label} (
+              {tokenChain.toUpperCase()})
             </span>
-            <button type="button" onClick={() => { setCurrentStep("setup"); setSetupResult(null); }} className="ml-auto text-[9px] text-muted-foreground hover:text-foreground">
+            <button
+              type="button"
+              onClick={() => {
+                setCurrentStep("setup");
+                setSetupResult(null);
+              }}
+              className="ml-auto text-[9px] text-muted-foreground hover:text-foreground"
+            >
               Change
             </button>
           </div>
@@ -719,20 +852,40 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
           {/* Name & Symbol */}
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Token Name *</Label>
-              <Input placeholder="My AI Token" value={name} onChange={(e) => setName(e.target.value)} maxLength={50} className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground" />
+              <Label className="text-xs text-muted-foreground">
+                Token Name *
+              </Label>
+              <Input
+                placeholder="My AI Token"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={50}
+                className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground"
+              />
             </div>
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Symbol *</Label>
-              <Input placeholder="MAI" value={symbol} onChange={(e) => setSymbol(e.target.value.toUpperCase())} maxLength={10} className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground font-mono" />
+              <Input
+                placeholder="MAI"
+                value={symbol}
+                onChange={(e) => setSymbol(e.target.value.toUpperCase())}
+                maxLength={10}
+                className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground font-mono"
+              />
             </div>
           </div>
 
           {/* Admin Wallet */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground">Admin Wallet</Label>
-              <button type="button" onClick={() => setUseCustomWallet(!useCustomWallet)} className="text-[9px] text-primary hover:underline">
+              <Label className="text-xs text-muted-foreground">
+                Admin Wallet
+              </Label>
+              <button
+                type="button"
+                onClick={() => setUseCustomWallet(!useCustomWallet)}
+                className="text-[9px] text-primary hover:underline"
+              >
                 {useCustomWallet ? "Use default" : "Custom"}
               </button>
             </div>
@@ -745,7 +898,9 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
               />
             ) : (
               <div className="rounded-md bg-secondary/50 border border-border px-3 py-2">
-                <code className="text-[10px] font-mono text-accent break-all">{DEFAULT_ADMIN}</code>
+                <code className="text-[10px] font-mono text-accent break-all">
+                  {DEFAULT_ADMIN}
+                </code>
               </div>
             )}
           </div>
@@ -753,7 +908,9 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
           {/* Description + AI button */}
           <div className="space-y-1">
             <div className="flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground">Description</Label>
+              <Label className="text-xs text-muted-foreground">
+                Description
+              </Label>
               <Button
                 variant="outline"
                 size="sm"
@@ -796,23 +953,48 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
             onClick={() => setShowAdvanced(!showAdvanced)}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            {showAdvanced ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            {showAdvanced ? (
+              <ChevronUp className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5" />
+            )}
             Social Links
           </button>
 
           {showAdvanced && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">Website</Label>
-                <Input placeholder="https://..." value={website} onChange={(e) => setWebsite(e.target.value)} className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-xs" />
+                <Label className="text-[10px] text-muted-foreground">
+                  Website
+                </Label>
+                <Input
+                  placeholder="https://..."
+                  value={website}
+                  onChange={(e) => setWebsite(e.target.value)}
+                  className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-xs"
+                />
               </div>
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">Twitter</Label>
-                <Input placeholder="@handle" value={twitter} onChange={(e) => setTwitter(e.target.value)} className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-xs" />
+                <Label className="text-[10px] text-muted-foreground">
+                  Twitter
+                </Label>
+                <Input
+                  placeholder="@handle"
+                  value={twitter}
+                  onChange={(e) => setTwitter(e.target.value)}
+                  className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-xs"
+                />
               </div>
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">Telegram</Label>
-                <Input placeholder="t.me/group" value={telegram} onChange={(e) => setTelegram(e.target.value)} className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-xs" />
+                <Label className="text-[10px] text-muted-foreground">
+                  Telegram
+                </Label>
+                <Input
+                  placeholder="t.me/group"
+                  value={telegram}
+                  onChange={(e) => setTelegram(e.target.value)}
+                  className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-xs"
+                />
               </div>
             </div>
           )}
@@ -822,8 +1004,12 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
             <div className="rounded-lg border border-border bg-background p-3 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-medium text-card-foreground">V5 Tax Config</p>
-                  <p className="text-[9px] text-muted-foreground">Buy/sell tax: 1-5%</p>
+                  <p className="text-xs font-medium text-card-foreground">
+                    V5 Tax Config
+                  </p>
+                  <p className="text-[9px] text-muted-foreground">
+                    Buy/sell tax: 1-5%
+                  </p>
                 </div>
                 <Switch checked={enableTax} onCheckedChange={setEnableTax} />
               </div>
@@ -832,10 +1018,20 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
                 <div className="space-y-3 pt-1">
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <Label className="text-xs text-muted-foreground">Tax Rate</Label>
-                      <span className="text-xs font-mono font-bold text-primary">{tax}%</span>
+                      <Label className="text-xs text-muted-foreground">
+                        Tax Rate
+                      </Label>
+                      <span className="text-xs font-mono font-bold text-primary">
+                        {tax}%
+                      </span>
                     </div>
-                    <Slider value={[tax]} onValueChange={(v) => setTax(v[0])} min={1} max={5} step={1} />
+                    <Slider
+                      value={[tax]}
+                      onValueChange={(v) => setTax(v[0])}
+                      min={1}
+                      max={5}
+                      step={1}
+                    />
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     {[
@@ -845,14 +1041,28 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
                       { label: "LP %", value: lp, set: setLp },
                     ].map((f) => (
                       <div key={f.label} className="space-y-1">
-                        <Label className="text-[10px] text-muted-foreground">{f.label}</Label>
-                        <Input type="number" value={f.value} onChange={(e) => f.set(Number(e.target.value))} min={0} max={100} className="bg-secondary border-border text-secondary-foreground font-mono text-xs" />
+                        <Label className="text-[10px] text-muted-foreground">
+                          {f.label}
+                        </Label>
+                        <Input
+                          type="number"
+                          value={f.value}
+                          onChange={(e) => f.set(Number(e.target.value))}
+                          min={0}
+                          max={100}
+                          className="bg-secondary border-border text-secondary-foreground font-mono text-xs"
+                        />
                       </div>
                     ))}
                   </div>
-                  <div className={`text-[10px] font-mono ${taxDistValid ? "text-chart-3" : "text-destructive"}`}>
-                    {!taxDistValid && <AlertCircle className="inline h-2.5 w-2.5 mr-1" />}
-                    Distribution: {taxDistTotal}/100{taxDistValid ? " (Valid)" : " (Must = 100)"}
+                  <div
+                    className={`text-[10px] font-mono ${taxDistValid ? "text-chart-3" : "text-destructive"}`}
+                  >
+                    {!taxDistValid && (
+                      <AlertCircle className="inline h-2.5 w-2.5 mr-1" />
+                    )}
+                    Distribution: {taxDistTotal}/100
+                    {taxDistValid ? " (Valid)" : " (Must = 100)"}
                   </div>
                 </div>
               )}
@@ -865,7 +1075,9 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
               if (enableTax && !taxDistValid) return;
               setCurrentStep("review");
             }}
-            disabled={!name.trim() || !symbol.trim() || (enableTax && !taxDistValid)}
+            disabled={
+              !name.trim() || !symbol.trim() || (enableTax && !taxDistValid)
+            }
             className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
           >
             Review & Post
@@ -878,58 +1090,103 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
         <div className="space-y-3">
           <div className="rounded-lg border border-border bg-background p-3">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-xs font-semibold text-card-foreground">Post Preview</h3>
-              <button type="button" onClick={handleCopyContent} className="flex items-center gap-1 rounded bg-secondary px-2 py-0.5 text-[10px] text-secondary-foreground hover:bg-secondary/80">
-                {copied ? <><Check className="h-2.5 w-2.5" /> Copied</> : <><Copy className="h-2.5 w-2.5" /> Copy</>}
+              <h3 className="text-xs font-semibold text-card-foreground">
+                Post Preview
+              </h3>
+              <button
+                type="button"
+                onClick={handleCopyContent}
+                className="flex items-center gap-1 rounded bg-secondary px-2 py-0.5 text-[10px] text-secondary-foreground hover:bg-secondary/80"
+              >
+                {copied ? (
+                  <>
+                    <Check className="h-2.5 w-2.5" /> Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-2.5 w-2.5" /> Copy
+                  </>
+                )}
               </button>
             </div>
-            <pre className="rounded-md bg-card border border-border p-3 text-[10px] font-mono text-foreground overflow-x-auto whitespace-pre-wrap leading-relaxed">{buildPreviewContent()}</pre>
+            <pre className="rounded-md bg-card border border-border p-3 text-[10px] font-mono text-foreground overflow-x-auto whitespace-pre-wrap leading-relaxed">
+              {buildPreviewContent()}
+            </pre>
           </div>
 
           {/* Summary grid */}
           <div className="grid grid-cols-3 gap-2">
             <div className="rounded-md bg-secondary/50 border border-border px-2 py-1.5">
               <p className="text-[9px] text-muted-foreground">Platform</p>
-              <p className="text-xs font-medium text-card-foreground">{lpInfo.label}</p>
+              <p className="text-xs font-medium text-card-foreground">
+                {lpInfo.label}
+              </p>
             </div>
             <div className="rounded-md bg-secondary/50 border border-border px-2 py-1.5">
               <p className="text-[9px] text-muted-foreground">Agent</p>
-              <p className="text-xs font-medium text-card-foreground">{AGENTS[agent].label}</p>
+              <p className="text-xs font-medium text-card-foreground">
+                {agentInfo.label}
+              </p>
             </div>
             <div className="rounded-md bg-secondary/50 border border-border px-2 py-1.5">
               <p className="text-[9px] text-muted-foreground">Chain</p>
-              <p className="text-xs font-mono font-bold text-accent">{tokenChain.toUpperCase()}</p>
+              <p className="text-xs font-mono font-bold text-accent">
+                {tokenChain.toUpperCase()}
+              </p>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-md bg-secondary/50 border border-border px-2 py-1.5">
               <p className="text-[9px] text-muted-foreground">Name</p>
-              <p className="text-xs font-medium text-card-foreground">{name}</p>
+              <p className="text-xs font-medium text-card-foreground">
+                {name}
+              </p>
             </div>
             <div className="rounded-md bg-secondary/50 border border-border px-2 py-1.5">
               <p className="text-[9px] text-muted-foreground">Symbol</p>
-              <p className="text-xs font-mono font-bold text-accent">{"$"}{symbol.toUpperCase()}</p>
+              <p className="text-xs font-mono font-bold text-accent">
+                {"$"}
+                {symbol.toUpperCase()}
+              </p>
             </div>
           </div>
 
           <div className="rounded-md bg-accent/10 border border-accent/20 px-3 py-2">
             <p className="text-[9px] text-accent leading-relaxed">
-              Posts the {launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : "!clawnch"} command to {AGENTS[agent].label}.
-              {lpInfo.agents.includes(agent) && (agent === "moltx" || agent === "4claw_org" || agent === "clawstr") && launchpad !== "4claw"
+              Posts the{" "}
+              {launchpad === "4claw"
+                ? "!4clawd"
+                : launchpad === "kibu"
+                  ? "!kibu"
+                  : "!clawnch"}{" "}
+              command to {agentInfo.label}.
+              {(agent === "moltx" ||
+                agent === "4claw_org" ||
+                agent === "clawstr") &&
+              launchpad !== "4claw"
                 ? ` ${lpInfo.label} auto-scans every minute and deploys automatically.`
                 : launchpad === "4claw"
                   ? " Then triggers the 4claw indexer."
-                  : " Then triggers the launch API."}
-              {" "}Cost: {lpInfo.fee}.
+                  : " Then triggers the launch API."}{" "}
+              Cost: {lpInfo.fee}. {!needsEvmWallet && "No EVM wallet needed."}
             </p>
           </div>
 
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setCurrentStep("form")} className="flex-1 bg-transparent">Edit</Button>
-            <Button onClick={handlePost} className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold">
+            <Button
+              variant="outline"
+              onClick={() => setCurrentStep("form")}
+              className="flex-1 bg-transparent"
+            >
+              Edit
+            </Button>
+            <Button
+              onClick={handlePost}
+              className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
+            >
               <Send className="mr-2 h-4 w-4" />
-              Post to {AGENTS[agent].label}
+              Post to {agentInfo.label}
             </Button>
           </div>
         </div>
@@ -942,7 +1199,7 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
             <div className="flex flex-col items-center gap-3 py-8">
               <Loader2 className="h-7 w-7 text-primary animate-spin" />
               <p className="text-sm font-medium text-card-foreground">
-                Posting to {AGENTS[agent].label}...
+                Posting to {agentInfo.label}...
               </p>
               <p className="text-[10px] text-muted-foreground">
                 Deploying via {lpInfo.label} on {tokenChain.toUpperCase()}
@@ -952,15 +1209,42 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
 
           {postResult && !isPosting && (
             <div className="space-y-3">
-              <div className={`flex flex-col items-center gap-2 py-4 ${postResult.success ? "text-chart-3" : "text-destructive"}`}>
-                {postResult.success ? <CheckCircle2 className="h-8 w-8" /> : <XCircle className="h-8 w-8" />}
-                <p className="text-sm font-semibold text-center">{postResult.success ? "Token Launch Initiated!" : "Post Failed"}</p>
+              <div
+                className={`flex flex-col items-center gap-2 py-4 ${postResult.success ? "text-chart-3" : "text-destructive"}`}
+              >
+                {postResult.success ? (
+                  <CheckCircle2 className="h-8 w-8" />
+                ) : (
+                  <XCircle className="h-8 w-8" />
+                )}
+                <p className="text-sm font-semibold text-center">
+                  {postResult.success
+                    ? "Token Launch Initiated!"
+                    : "Post Failed"}
+                </p>
               </div>
 
-              <div className={`rounded-lg border p-3 ${postResult.success ? "border-chart-3/30 bg-chart-3/5" : "border-destructive/30 bg-destructive/5"}`}>
-                <p className={`text-[10px] leading-relaxed ${postResult.success ? "text-chart-3" : "text-destructive"}`}>{postResult.message}</p>
+              <div
+                className={`rounded-lg border p-3 ${postResult.success ? "border-chart-3/30 bg-chart-3/5" : "border-destructive/30 bg-destructive/5"}`}
+              >
+                <p
+                  className={`text-[10px] leading-relaxed ${postResult.success ? "text-chart-3" : "text-destructive"}`}
+                >
+                  {postResult.message}
+                </p>
                 {postResult.postId && (
-                  <a href={agent === "moltx" ? `https://moltx.io/post/${postResult.postId}` : agent === "moltbook" ? `https://www.moltbook.com/post/${postResult.postId}` : "#"} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-[10px] text-primary hover:underline">
+                  <a
+                    href={
+                      agent === "moltx"
+                        ? `https://moltx.io/post/${postResult.postId}`
+                        : agent === "moltbook"
+                          ? `https://www.moltbook.com/post/${postResult.postId}`
+                          : "#"
+                    }
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
+                  >
                     <ExternalLink className="h-2.5 w-2.5" />
                     View post
                   </a>
@@ -968,9 +1252,30 @@ export function LaunchForm({ prefillName, prefillSymbol }: LaunchFormProps) {
               </div>
 
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => { setCurrentStep("form"); setPostResult(null); setName(""); setSymbol(""); setDescription(""); }} className="flex-1 bg-transparent">Launch Another</Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setCurrentStep("form");
+                    setPostResult(null);
+                    setName("");
+                    setSymbol("");
+                    setDescription("");
+                    setImageUrl("");
+                  }}
+                  className="flex-1 bg-transparent"
+                >
+                  Launch Another
+                </Button>
                 {!postResult.success && (
-                  <Button onClick={() => { setCurrentStep("review"); setPostResult(null); }} className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90">Retry</Button>
+                  <Button
+                    onClick={() => {
+                      setCurrentStep("review");
+                      setPostResult(null);
+                    }}
+                    className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
+                  >
+                    Retry
+                  </Button>
                 )}
               </div>
             </div>
