@@ -14,9 +14,9 @@ const _jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "4claw - BSC Token Launchpad",
+  title: "Token Launchpad - 4claw / Kibu / Clawnch",
   description:
-    "Launch AI agent tokens on BSC with Four.Meme via 4claw protocol. Live BSC token feed powered by GeckoTerminal.",
+    "Multi-platform token launchpad. Deploy AI agent tokens on BSC and Base via 4claw, Kibu, and Clawnch. Post via Moltx, Moltbook, 4claw.org, or Clawstr. Live token feed powered by GeckoTerminal.",
 };
 
 export const viewport: Viewport = {
