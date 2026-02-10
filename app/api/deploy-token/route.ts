@@ -196,13 +196,14 @@ export async function POST(request: Request) {
 
     // ── STEP 1: Register agent if no existing key ────────────
     if (!apiKey) {
-      // Agents that post to Moltx need a Moltx account
+      // All auto-register agents use Moltx infra under the hood
       if (agent === "moltx" || agent === "4claw_org" || agent === "clawstr") {
-        log.push("Registering Moltx agent...");
+        const agentLabel = agent === "moltx" ? "Moltx" : agent === "4claw_org" ? "4claw.org" : "Clawstr";
+        log.push(`Registering "${token.name}" agent on ${agentLabel}...`);
         const reg = await registerMoltxAgent(token.name, token.symbol);
         apiKey = reg.apiKey;
         agentName = reg.agentName;
-        log.push(`Agent "${reg.agentName}" registered`);
+        log.push(`Agent "${reg.agentName}" registered on ${agentLabel}`);
       }
       // Moltbook posts need a Moltbook key -- can't auto-register
       if (agent === "moltbook" && !apiKey) {

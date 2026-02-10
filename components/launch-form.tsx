@@ -259,13 +259,13 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
     };
 
     if (agentInfo.autoRegister && !moltbookKey) {
-      pushLog(`Registering agent "${name}" on Moltx...`);
+      pushLog(`Registering "${name}" agent on ${agentInfo.label}...`);
       if (agent === "moltx") {
         pushLog("Generating EVM wallet...");
         pushLog("Linking wallet via EIP-712...");
       }
     }
-    pushLog(`Posting to ${agentInfo.label}...`);
+    pushLog(`Posting via ${agentInfo.label}...`);
 
     try {
       const res = await fetch("/api/deploy-token", {
@@ -413,7 +413,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
             {agentInfo.autoRegister ? (
               <>
                 <span className="font-medium text-chart-3">Auto-register:</span>{" "}
-                Agent will be registered with your token name on deploy.
+                Agent will be registered on <span className="font-semibold text-foreground">{agentInfo.label}</span> with your token name on deploy.
                 {agent === "moltx" && " EVM wallet will be generated and linked automatically."}
                 {agent !== "moltx" && " No EVM wallet needed."}
               </>
@@ -663,7 +663,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
           <div className="rounded-md bg-accent/10 border border-accent/20 px-3 py-2">
             <p className="text-[9px] text-accent leading-relaxed">
               {agentInfo.autoRegister
-                ? `Click Deploy to auto-register a "${name || "your token"}" agent on Moltx${agent === "moltx" ? " (with EVM wallet)" : ""}, post the ${launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : "!clawnch"} command to ${agentInfo.label}, and trigger ${lpInfo.label} deployment.`
+                ? `Click Deploy to auto-register a "${name || "your token"}" agent on ${agentInfo.label}${agent === "moltx" ? " (with EVM wallet)" : ""}, post the ${launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : "!clawnch"} command via ${agentInfo.label}, and trigger ${lpInfo.label} deployment.`
                 : `Click Deploy to post the ${launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : "!clawnch"} command to ${agentInfo.label} using your API key and trigger ${lpInfo.label} deployment.`
               }
               {" "}Cost: {lpInfo.fee}. Rate: {lpInfo.rateLimit}.
