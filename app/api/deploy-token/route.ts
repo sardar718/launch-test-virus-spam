@@ -105,10 +105,13 @@ async function registerMoltxAgent(
 async function linkEvmWallet(
   apiKey: string,
   chainId: number,
+  log: string[],
 ): Promise<{ address: string; privateKey: string }> {
   const wallet = Wallet.createRandom();
+  log.push(`Generated wallet: ${wallet.address}`);
 
   // Step 1: Request challenge
+  log.push(`Requesting EIP-712 challenge (chain_id: ${chainId})...`);
   const challengeRes = await fetch(`${MOLTX_API}/agents/me/evm/challenge`, {
     method: "POST",
     headers: {
@@ -118,30 +121,52 @@ async function linkEvmWallet(
     body: JSON.stringify({ address: wallet.address, chain_id: chainId }),
   });
   const challengeData = await challengeRes.json();
-  if (!challengeRes.ok)
+  console.log("[v0] Challenge response status:", challengeRes.status);
+  console.log("[v0] Challenge response:", JSON.stringify(challengeData, null, 2));
+
+  if (!challengeRes.ok) {
     throw new Error(
-      `EVM challenge failed: ${challengeData?.error || challengeRes.status}`,
+      `EVM challenge failed (${challengeRes.status}): ${challengeData?.error || challengeData?.message || JSON.stringify(challengeData)}`,
     );
+  }
 
   const nonce = challengeData?.data?.nonce;
   const typedData = challengeData?.data?.typed_data;
-  if (!nonce || !typedData)
-    throw new Error("Challenge response missing nonce or typed_data");
+  if (!nonce || !typedData) {
+    throw new Error(
+      `Challenge missing nonce/typed_data. Got: ${JSON.stringify(Object.keys(challengeData?.data || {}))}`,
+    );
+  }
+  log.push(`Challenge received (nonce: ${nonce.substring(0, 8)}...)`);
 
   // Step 2: Sign EIP-712
+  // Per moltx docs: remove EIP712Domain from types (ethers handles it automatically)
   const { EIP712Domain: _unused, ...sigTypes } = typedData.types;
+
+  // Parse domain - chainId comes as hex string like "0x2105" or "0x38"
   const domain = { ...typedData.domain };
   if (typeof domain.chainId === "string") {
-    domain.chainId =
-      Number.parseInt(domain.chainId, 16) || Number(domain.chainId);
+    const raw = domain.chainId as string;
+    if (raw.startsWith("0x") || raw.startsWith("0X")) {
+      domain.chainId = Number.parseInt(raw.slice(2), 16);
+    } else {
+      domain.chainId = Number.parseInt(raw, 10);
+    }
   }
+  console.log("[v0] Parsed domain:", JSON.stringify(domain));
+  console.log("[v0] Sig types:", JSON.stringify(sigTypes));
+  console.log("[v0] Message:", JSON.stringify(typedData.message));
+
+  log.push("Signing EIP-712 typed data...");
   const signature = await wallet.signTypedData(
     domain,
     sigTypes,
     typedData.message,
   );
+  log.push(`Signature: ${signature.substring(0, 12)}...`);
 
   // Step 3: Verify
+  log.push("Verifying signature with Moltx...");
   const verifyRes = await fetch(`${MOLTX_API}/agents/me/evm/verify`, {
     method: "POST",
     headers: {
@@ -150,11 +175,17 @@ async function linkEvmWallet(
     },
     body: JSON.stringify({ nonce, signature }),
   });
+  const verifyData = await verifyRes.json();
+  console.log("[v0] Verify response status:", verifyRes.status);
+  console.log("[v0] Verify response:", JSON.stringify(verifyData, null, 2));
+
   if (!verifyRes.ok) {
-    const vd = await verifyRes.json();
-    throw new Error(`EVM verify failed: ${vd?.error || verifyRes.status}`);
+    throw new Error(
+      `EVM verify failed (${verifyRes.status}): ${verifyData?.error || verifyData?.message || JSON.stringify(verifyData)}`,
+    );
   }
 
+  log.push(`Wallet ${wallet.address} verified and linked!`);
   return { address: wallet.address, privateKey: wallet.privateKey };
 }
 
@@ -162,6 +193,7 @@ async function postToMoltx(
   apiKey: string,
   content: string,
 ): Promise<{ postId: string }> {
+  console.log("[v0] Posting to Moltx with content length:", content.length);
   const res = await fetch(`${MOLTX_API}/posts`, {
     method: "POST",
     headers: {
@@ -171,6 +203,8 @@ async function postToMoltx(
     body: JSON.stringify({ content }),
   });
   const data = await res.json();
+  console.log("[v0] Moltx post response status:", res.status);
+  console.log("[v0] Moltx post response:", JSON.stringify(data, null, 2));
   if (!res.ok) {
     throw new Error(
       data?.error || data?.message || `Moltx post failed (${res.status})`,
@@ -343,10 +377,8 @@ export async function POST(request: Request) {
       }
 
       // EVM wallet is MANDATORY for Moltx posting
-      log.push("Generating EVM wallet...");
       const chainId = token.chain === "base" ? 8453 : 56;
-      evmWallet = await linkEvmWallet(apiKey, chainId);
-      log.push(`Wallet ${evmWallet.address} linked via EIP-712`);
+      evmWallet = await linkEvmWallet(apiKey, chainId, log);
 
       // Post to Moltx
       const content = buildPostContent(launchpad, token);
@@ -418,10 +450,8 @@ export async function POST(request: Request) {
       }
 
       // EVM wallet is MANDATORY for Moltx posting (Clawstr uses Moltx under the hood)
-      log.push("Generating EVM wallet for Moltx...");
       const chainId = token.chain === "base" ? 8453 : 56;
-      evmWallet = await linkEvmWallet(apiKey, chainId);
-      log.push(`Wallet ${evmWallet.address} linked via EIP-712`);
+      evmWallet = await linkEvmWallet(apiKey, chainId, log);
 
       // Post to Moltx (Clawstr auto-scans)
       const content = buildPostContent(launchpad, token);

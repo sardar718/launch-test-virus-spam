@@ -9,6 +9,8 @@ import {
   Flame,
   Clock,
   ExternalLink,
+  Zap,
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -31,6 +33,8 @@ export interface TrendingToken {
   dex: string;
   imageUrl: string | null;
   website: string | null;
+  twitter?: string | null;
+  telegram?: string | null;
   tokenDescription: string | null;
 }
 
@@ -40,15 +44,34 @@ const CHAINS = [
   { id: "solana", label: "Solana", color: "text-[#9945FF]" },
 ] as const;
 
-const CHAIN_EXPLORERS: Record<string, string> = {
-  bsc: "https://www.geckoterminal.com/bsc/pools/",
-  base: "https://www.geckoterminal.com/base/pools/",
-  solana: "https://www.geckoterminal.com/solana/pools/",
+const SOURCES = [
+  { id: "gecko", label: "GeckoTerminal", icon: Flame },
+  { id: "dexscreener", label: "DexScreener", icon: Zap },
+  { id: "coingecko", label: "CoinGecko", icon: Star },
+] as const;
+
+const CHAIN_EXPLORERS: Record<string, Record<string, string>> = {
+  gecko: {
+    bsc: "https://www.geckoterminal.com/bsc/pools/",
+    base: "https://www.geckoterminal.com/base/pools/",
+    solana: "https://www.geckoterminal.com/solana/pools/",
+  },
+  dexscreener: {
+    bsc: "https://dexscreener.com/bsc/",
+    base: "https://dexscreener.com/base/",
+    solana: "https://dexscreener.com/solana/",
+  },
+  coingecko: {
+    bsc: "https://www.coingecko.com/en/coins/",
+    base: "https://www.coingecko.com/en/coins/",
+    solana: "https://www.coingecko.com/en/coins/",
+  },
 };
 
 function formatCompact(value: string | null): string {
   if (!value) return "$0";
   const num = Number.parseFloat(value);
+  if (Number.isNaN(num)) return "$0";
   if (num >= 1_000_000) return `$${(num / 1_000_000).toFixed(1)}M`;
   if (num >= 1_000) return `$${(num / 1_000).toFixed(1)}K`;
   if (num >= 1) return `$${num.toFixed(2)}`;
@@ -65,16 +88,36 @@ function formatAge(dateStr: string | null): string {
   return `${Math.floor(hrs / 24)}d`;
 }
 
+function getApiUrl(source: string, chain: string, feedType: string): string {
+  if (source === "dexscreener") return `/api/dexscreener-tokens?chain=${chain}`;
+  if (source === "coingecko") return `/api/coingecko-tokens?chain=${chain}`;
+  return `/api/trending-tokens?chain=${chain}&type=${feedType}`;
+}
+
+function getExplorerUrl(
+  source: string,
+  chain: string,
+  token: TrendingToken,
+): string {
+  const explorers = CHAIN_EXPLORERS[source] || CHAIN_EXPLORERS.gecko;
+  const base = explorers[chain] || explorers.bsc;
+  if (source === "coingecko") {
+    return `${base}${token.id.replace("cg_", "")}`;
+  }
+  return `${base}${token.poolAddress}`;
+}
+
 interface Props {
   onSelectToken?: (token: TrendingToken) => void;
 }
 
 export function TrendingMemecoins({ onSelectToken }: Props) {
   const [chain, setChain] = useState<string>("bsc");
+  const [source, setSource] = useState<string>("gecko");
   const [feedType, setFeedType] = useState<"trending" | "new">("trending");
 
   const { data, isLoading, mutate } = useSWR(
-    `/api/trending-tokens?chain=${chain}&type=${feedType}`,
+    getApiUrl(source, chain, feedType),
     fetcher,
     { refreshInterval: 60000, revalidateOnFocus: false },
   );
@@ -83,9 +126,7 @@ export function TrendingMemecoins({ onSelectToken }: Props) {
 
   const handleSelect = useCallback(
     (t: TrendingToken) => {
-      if (onSelectToken) {
-        onSelectToken(t);
-      }
+      if (onSelectToken) onSelectToken(t);
     },
     [onSelectToken],
   );
@@ -93,18 +134,55 @@ export function TrendingMemecoins({ onSelectToken }: Props) {
   return (
     <div className="rounded-xl border border-border bg-card p-4">
       {/* Header */}
-      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          <Flame className="h-4 w-4 text-primary" />
-          <h2 className="text-sm font-semibold text-card-foreground">
-            Trending Memecoins
-          </h2>
-          <span className="text-[10px] text-muted-foreground">
-            Click to fill form
-          </span>
+      <div className="mb-3 flex flex-col gap-2">
+        {/* Title + Source tabs */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Flame className="h-4 w-4 text-primary" />
+            <h2 className="text-sm font-semibold text-card-foreground">
+              Trending Memecoins
+            </h2>
+            <span className="text-[10px] text-muted-foreground">
+              Click to fill form
+            </span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => mutate()}
+            disabled={isLoading}
+            className="h-7 w-7 p-0 border-border bg-transparent text-muted-foreground"
+          >
+            <RefreshCw
+              className={`h-3 w-3 ${isLoading ? "animate-spin" : ""}`}
+            />
+          </Button>
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Controls row */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Source selector */}
+          <div className="flex rounded-lg border border-border bg-secondary p-0.5">
+            {SOURCES.map((s) => {
+              const Icon = s.icon;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setSource(s.id)}
+                  className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${
+                    source === s.id
+                      ? "bg-card text-card-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Icon className="h-2.5 w-2.5" />
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
+
           {/* Chain selector */}
           <div className="flex rounded-lg border border-border bg-secondary p-0.5">
             {CHAINS.map((c) => (
@@ -123,45 +201,35 @@ export function TrendingMemecoins({ onSelectToken }: Props) {
             ))}
           </div>
 
-          {/* Type toggle */}
-          <div className="flex rounded-lg border border-border bg-secondary p-0.5">
-            <button
-              type="button"
-              onClick={() => setFeedType("trending")}
-              className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-                feedType === "trending"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Flame className="inline h-3 w-3 mr-0.5" />
-              Hot
-            </button>
-            <button
-              type="button"
-              onClick={() => setFeedType("new")}
-              className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
-                feedType === "new"
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Clock className="inline h-3 w-3 mr-0.5" />
-              New
-            </button>
-          </div>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => mutate()}
-            disabled={isLoading}
-            className="h-7 w-7 p-0 border-border bg-transparent text-muted-foreground"
-          >
-            <RefreshCw
-              className={`h-3 w-3 ${isLoading ? "animate-spin" : ""}`}
-            />
-          </Button>
+          {/* Hot/New toggle -- only for GeckoTerminal */}
+          {source === "gecko" && (
+            <div className="flex rounded-lg border border-border bg-secondary p-0.5">
+              <button
+                type="button"
+                onClick={() => setFeedType("trending")}
+                className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                  feedType === "trending"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Flame className="inline h-3 w-3 mr-0.5" />
+                Hot
+              </button>
+              <button
+                type="button"
+                onClick={() => setFeedType("new")}
+                className={`rounded-md px-2 py-1 text-[11px] font-medium transition-colors ${
+                  feedType === "new"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Clock className="inline h-3 w-3 mr-0.5" />
+                New
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -177,15 +245,18 @@ export function TrendingMemecoins({ onSelectToken }: Props) {
         </div>
       ) : tokens.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
-          No tokens found for this chain.
+          No tokens found. Try a different source or chain.
         </p>
       ) : (
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-thin">
           {tokens.map((t) => {
             const change = t.priceChange1h
               ? Number.parseFloat(t.priceChange1h)
-              : null;
+              : t.priceChange24h
+                ? Number.parseFloat(t.priceChange24h)
+                : null;
             const isUp = change !== null && change >= 0;
+            const changeLabel = t.priceChange1h ? "1h" : "24h";
 
             return (
               <button
@@ -236,7 +307,7 @@ export function TrendingMemecoins({ onSelectToken }: Props) {
                       ) : (
                         <TrendingDown className="h-2.5 w-2.5" />
                       )}
-                      {Math.abs(change).toFixed(1)}%
+                      {Math.abs(change).toFixed(1)}% {changeLabel}
                     </span>
                   )}
                 </div>
@@ -249,12 +320,12 @@ export function TrendingMemecoins({ onSelectToken }: Props) {
                     {formatAge(t.createdAt)}
                   </span>
                   <a
-                    href={`${CHAIN_EXPLORERS[chain] || CHAIN_EXPLORERS.bsc}${t.poolAddress}`}
+                    href={getExplorerUrl(source, chain, t)}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(e) => e.stopPropagation()}
                     className="ml-auto text-muted-foreground hover:text-foreground"
-                    aria-label={`View ${t.name} on GeckoTerminal`}
+                    aria-label={`View ${t.name} on explorer`}
                   >
                     <ExternalLink className="h-2.5 w-2.5" />
                   </a>
