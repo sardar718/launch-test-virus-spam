@@ -288,8 +288,11 @@ export async function POST(request: Request) {
       );
     }
 
-    // ── STEP 2: Link EVM wallet (ONLY for Moltx agent) ──────
-    if (agent === "moltx" && apiKey) {
+    // ── STEP 2: Link EVM wallet (ALL agents that post via Moltx API) ──
+    // Moltx requires a linked EVM wallet for ALL write operations (posts, likes, follows).
+    // Since moltx, 4claw_org, and clawstr agents all post through the Moltx API,
+    // they ALL need a linked wallet before posting.
+    if (agent !== "moltbook" && apiKey) {
       try {
         const chainId = token.chain === "base" ? 8453 : 56;
         log.push("Generating EVM wallet...");

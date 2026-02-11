@@ -260,10 +260,8 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
 
     if (agentInfo.autoRegister) {
       pushLog(`Registering "${name}" agent on ${agentInfo.label}...`);
-      if (agent === "moltx") {
-        pushLog("Generating EVM wallet...");
-        pushLog("Linking wallet via EIP-712...");
-      }
+      pushLog("Generating EVM wallet...");
+      pushLog("Linking wallet via EIP-712...");
     }
     if (agent === "moltbook") {
       pushLog(`Posting to Moltbook...`);
@@ -418,8 +416,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
               <>
                 <span className="font-medium text-chart-3">Auto-register:</span>{" "}
                 Agent will be registered on <span className="font-semibold text-foreground">{agentInfo.label}</span> with your token name on deploy.
-                {agent === "moltx" && " EVM wallet will be generated and linked automatically."}
-                {agent !== "moltx" && " No EVM wallet needed."}
+                {" "}EVM wallet will be generated and linked automatically (required by Moltx for posting).
               </>
             ) : (
               <>
