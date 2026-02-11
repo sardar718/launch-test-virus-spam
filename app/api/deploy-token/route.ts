@@ -110,7 +110,7 @@ async function linkEvmWallet(
   const wallet = Wallet.createRandom();
   log.push(`Generated wallet: ${wallet.address}`);
 
-  // Step 1: Request challenge
+  // Step 1: Request challenge (exactly per moltx docs)
   log.push(`Requesting EIP-712 challenge (chain_id: ${chainId})...`);
   const challengeRes = await fetch(`${MOLTX_API}/agents/me/evm/challenge`, {
     method: "POST",
@@ -120,52 +120,55 @@ async function linkEvmWallet(
     },
     body: JSON.stringify({ address: wallet.address, chain_id: chainId }),
   });
-  const challengeData = await challengeRes.json();
-  console.log("[v0] Challenge response status:", challengeRes.status);
-  console.log("[v0] Challenge response:", JSON.stringify(challengeData, null, 2));
+  const challengeBody = await challengeRes.text();
+  console.log("[v0] Challenge status:", challengeRes.status);
+  console.log("[v0] Challenge raw body:", challengeBody);
+
+  let challengeData: Record<string, unknown>;
+  try {
+    challengeData = JSON.parse(challengeBody);
+  } catch {
+    throw new Error(`Challenge returned non-JSON: ${challengeBody.substring(0, 200)}`);
+  }
 
   if (!challengeRes.ok) {
     throw new Error(
-      `EVM challenge failed (${challengeRes.status}): ${challengeData?.error || challengeData?.message || JSON.stringify(challengeData)}`,
+      `EVM challenge failed (${challengeRes.status}): ${(challengeData as Record<string, unknown>)?.error || challengeBody.substring(0, 200)}`,
     );
   }
 
-  const nonce = challengeData?.data?.nonce;
-  const typedData = challengeData?.data?.typed_data;
+  const data = (challengeData as Record<string, unknown>)?.data as Record<string, unknown> | undefined;
+  const nonce = data?.nonce as string | undefined;
+  const typedData = data?.typed_data as Record<string, unknown> | undefined;
   if (!nonce || !typedData) {
     throw new Error(
-      `Challenge missing nonce/typed_data. Got: ${JSON.stringify(Object.keys(challengeData?.data || {}))}`,
+      `Challenge missing fields. Keys: ${JSON.stringify(Object.keys(data || {}))}. Full: ${challengeBody.substring(0, 300)}`,
     );
   }
   log.push(`Challenge received (nonce: ${nonce.substring(0, 8)}...)`);
 
   // Step 2: Sign EIP-712
-  // Per moltx docs: remove EIP712Domain from types (ethers handles it automatically)
-  const { EIP712Domain: _unused, ...sigTypes } = typedData.types;
+  // Per official ethers.js v6 example in moltx docs:
+  //   const { EIP712Domain, ...types } = typedData.types;
+  //   const signature = await wallet.signTypedData(typedData.domain, types, typedData.message);
+  // Pass domain AS-IS from response. Ethers v6 handles hex chainId natively.
+  const allTypes = typedData.types as Record<string, unknown[]>;
+  const { EIP712Domain: _unused, ...sigTypes } = allTypes;
 
-  // Parse domain - chainId comes as hex string like "0x2105" or "0x38"
-  const domain = { ...typedData.domain };
-  if (typeof domain.chainId === "string") {
-    const raw = domain.chainId as string;
-    if (raw.startsWith("0x") || raw.startsWith("0X")) {
-      domain.chainId = Number.parseInt(raw.slice(2), 16);
-    } else {
-      domain.chainId = Number.parseInt(raw, 10);
-    }
-  }
-  console.log("[v0] Parsed domain:", JSON.stringify(domain));
-  console.log("[v0] Sig types:", JSON.stringify(sigTypes));
-  console.log("[v0] Message:", JSON.stringify(typedData.message));
+  // Domain: pass exactly as received from Moltx, ethers v6 handles "0x38" hex chainId
+  const domain = typedData.domain as Record<string, unknown>;
+  const message = typedData.message as Record<string, unknown>;
+
+  console.log("[v0] Domain (raw from Moltx):", JSON.stringify(domain));
+  console.log("[v0] SigTypes:", JSON.stringify(Object.keys(sigTypes)));
+  console.log("[v0] Message keys:", JSON.stringify(Object.keys(message)));
 
   log.push("Signing EIP-712 typed data...");
-  const signature = await wallet.signTypedData(
-    domain,
-    sigTypes,
-    typedData.message,
-  );
-  log.push(`Signature: ${signature.substring(0, 12)}...`);
+  const signature = await wallet.signTypedData(domain, sigTypes, message);
+  log.push(`Signature: ${signature.substring(0, 16)}...`);
+  console.log("[v0] Signature:", signature);
 
-  // Step 3: Verify
+  // Step 3: Verify (exactly per moltx docs)
   log.push("Verifying signature with Moltx...");
   const verifyRes = await fetch(`${MOLTX_API}/agents/me/evm/verify`, {
     method: "POST",
@@ -175,13 +178,20 @@ async function linkEvmWallet(
     },
     body: JSON.stringify({ nonce, signature }),
   });
-  const verifyData = await verifyRes.json();
-  console.log("[v0] Verify response status:", verifyRes.status);
-  console.log("[v0] Verify response:", JSON.stringify(verifyData, null, 2));
+  const verifyBody = await verifyRes.text();
+  console.log("[v0] Verify status:", verifyRes.status);
+  console.log("[v0] Verify raw body:", verifyBody);
+
+  let verifyData: Record<string, unknown>;
+  try {
+    verifyData = JSON.parse(verifyBody);
+  } catch {
+    throw new Error(`Verify returned non-JSON: ${verifyBody.substring(0, 200)}`);
+  }
 
   if (!verifyRes.ok) {
     throw new Error(
-      `EVM verify failed (${verifyRes.status}): ${verifyData?.error || verifyData?.message || JSON.stringify(verifyData)}`,
+      `EVM verify failed (${verifyRes.status}): ${(verifyData as Record<string, unknown>)?.error || verifyBody.substring(0, 200)}`,
     );
   }
 

@@ -7,6 +7,7 @@ import { TrendingMemecoins, type TrendingToken } from "@/components/trending-mem
 import { LaunchForm } from "@/components/launch-form";
 import { TokenFeed } from "@/components/token-feed";
 import { RecentLaunches } from "@/components/recent-launches";
+import { AutoLaunchPanel } from "@/components/auto-launch";
 
 export interface TokenPrefill {
   name: string;
@@ -58,8 +59,9 @@ export default function Page() {
             <RecentLaunches />
           </div>
 
-          {/* Right: Token Feed */}
-          <div className="lg:col-span-7">
+          {/* Right: Token Feed + Auto Launch */}
+          <div className="space-y-4 lg:col-span-7">
+            <AutoLaunchPanel />
             <TokenFeed />
           </div>
         </div>
