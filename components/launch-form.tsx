@@ -258,14 +258,18 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
       setDeployLog([...logMsgs]);
     };
 
-    if (agentInfo.autoRegister && !moltbookKey) {
+    if (agentInfo.autoRegister) {
       pushLog(`Registering "${name}" agent on ${agentInfo.label}...`);
       if (agent === "moltx") {
         pushLog("Generating EVM wallet...");
         pushLog("Linking wallet via EIP-712...");
       }
     }
-    pushLog(`Posting via ${agentInfo.label}...`);
+    if (agent === "moltbook") {
+      pushLog(`Posting to Moltbook...`);
+    } else {
+      pushLog(`Posting via ${agentInfo.label} (Moltx network)...`);
+    }
 
     try {
       const res = await fetch("/api/deploy-token", {

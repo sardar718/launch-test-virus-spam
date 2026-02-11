@@ -25,13 +25,19 @@ interface TokenData {
 
 // ── Build post content ──────────────────────────────────────────
 function buildPostContent(launchpad: string, token: TokenData): string {
-  const cmd = launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : "!clawnch";
+  const cmd =
+    launchpad === "4claw"
+      ? "!4clawd"
+      : launchpad === "kibu"
+        ? "!kibu"
+        : "!clawnch";
   let post = `${cmd}\nname: ${token.name}\nsymbol: ${token.symbol}\nwallet: ${token.wallet}`;
   if (token.description) post += `\ndescription: ${token.description}`;
   if (token.image) post += `\nimage: ${token.image}`;
   if (token.website) post += `\nwebsite: ${token.website}`;
   if (token.twitter) post += `\ntwitter: ${token.twitter}`;
-  if (token.telegram && launchpad === "4claw") post += `\ntelegram: ${token.telegram}`;
+  if (token.telegram && launchpad === "4claw")
+    post += `\ntelegram: ${token.telegram}`;
   if ((launchpad === "kibu" || launchpad === "clawnch") && token.chain)
     post += `\nchain: ${token.chain}`;
   if (launchpad === "4claw" && token.tax) {
@@ -42,7 +48,12 @@ function buildPostContent(launchpad: string, token: TokenData): string {
 
 // Build Moltbook-safe content (JSON in code block)
 function buildMoltbookContent(launchpad: string, token: TokenData): string {
-  const cmd = launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : "!clawnch";
+  const cmd =
+    launchpad === "4claw"
+      ? "!4clawd"
+      : launchpad === "kibu"
+        ? "!kibu"
+        : "!clawnch";
   const jsonObj: Record<string, string | number> = {
     name: token.name,
     symbol: token.symbol,
@@ -58,11 +69,13 @@ function buildMoltbookContent(launchpad: string, token: TokenData): string {
 }
 
 // ── Register Moltx agent ────────────────────────────────────────
-async function registerMoltxAgent(
+// All agents (Moltx, 4claw.org, Clawstr) use Moltx registration under the hood.
+// The Moltx API is the single registration endpoint for all auto-register agents.
+async function registerAgent(
   tokenName: string,
   tokenSymbol: string,
 ): Promise<{ apiKey: string; agentName: string }> {
-  const agentName = `${tokenName.toLowerCase().replace(/[^a-z0-9]/g, "_")}_${Date.now().toString(36)}`;
+  const agentName = `${tokenName.toLowerCase().replace(/[^a-z0-9]/g, "")}_${Date.now().toString(36)}`;
   const res = await fetch(`${MOLTX_API}/agents/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -74,8 +87,12 @@ async function registerMoltxAgent(
     }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data?.error || data?.message || `Register failed (${res.status})`);
-  const apiKey = data?.data?.api_key || data?.api_key || data?.data?.data?.api_key;
+  if (!res.ok)
+    throw new Error(
+      data?.error || data?.message || `Register failed (${res.status})`,
+    );
+  const apiKey =
+    data?.data?.api_key || data?.api_key || data?.data?.data?.api_key;
   if (!apiKey) throw new Error("Registered but no API key returned");
   return { apiKey, agentName };
 }
@@ -97,19 +114,28 @@ async function linkEvmWallet(
     body: JSON.stringify({ address: wallet.address, chain_id: chainId }),
   });
   const challengeData = await challengeRes.json();
-  if (!challengeRes.ok) throw new Error(`Challenge failed: ${challengeData?.error || challengeRes.status}`);
+  if (!challengeRes.ok)
+    throw new Error(
+      `Challenge failed: ${challengeData?.error || challengeRes.status}`,
+    );
 
   const nonce = challengeData?.data?.nonce;
   const typedData = challengeData?.data?.typed_data;
-  if (!nonce || !typedData) throw new Error("Challenge response missing nonce or typed_data");
+  if (!nonce || !typedData)
+    throw new Error("Challenge response missing nonce or typed_data");
 
   // Step 2: Sign EIP-712
   const { EIP712Domain: _unused, ...sigTypes } = typedData.types;
   const domain = { ...typedData.domain };
   if (typeof domain.chainId === "string") {
-    domain.chainId = Number.parseInt(domain.chainId, 16) || Number(domain.chainId);
+    domain.chainId =
+      Number.parseInt(domain.chainId, 16) || Number(domain.chainId);
   }
-  const signature = await wallet.signTypedData(domain, sigTypes, typedData.message);
+  const signature = await wallet.signTypedData(
+    domain,
+    sigTypes,
+    typedData.message,
+  );
 
   // Step 3: Verify
   const verifyRes = await fetch(`${MOLTX_API}/agents/me/evm/verify`, {
@@ -128,6 +154,30 @@ async function linkEvmWallet(
   return { address: wallet.address, privateKey: wallet.privateKey };
 }
 
+// ── Post to Moltx (used by moltx, 4claw.org, and clawstr agents) ──
+async function postToMoltx(
+  apiKey: string,
+  content: string,
+): Promise<{ postId: string }> {
+  const res = await fetch(`${MOLTX_API}/posts`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ content }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    const errMsg =
+      data?.error || data?.message || `Moltx post failed (${res.status})`;
+    throw new Error(errMsg);
+  }
+  const postId =
+    data?.data?.id || data?.id || data?.data?.post?.id || "unknown";
+  return { postId };
+}
+
 // ── Trigger launchpad indexer ────────────────────────────────────
 async function triggerLaunchpad(
   launchpad: string,
@@ -135,7 +185,8 @@ async function triggerLaunchpad(
   postId: string | undefined,
   apiKey: string,
 ): Promise<string> {
-  if (!postId) return "No post ID -- launchpad may still auto-scan.";
+  if (!postId || postId === "unknown")
+    return "No post ID -- launchpad will still auto-scan.";
 
   if (launchpad === "4claw") {
     const res = await fetch(`${FOURCLAW_API}/launch`, {
@@ -148,7 +199,9 @@ async function triggerLaunchpad(
       ),
     });
     const d = await res.json();
-    return res.ok ? "4claw indexer triggered. Token entering review queue." : `4claw trigger: ${d?.error || d?.message || res.status}`;
+    return res.ok
+      ? "4claw indexer triggered."
+      : `4claw trigger: ${d?.error || d?.message || res.status}`;
   }
 
   if (launchpad === "clawnch" && source === "moltbook") {
@@ -158,12 +211,19 @@ async function triggerLaunchpad(
       body: JSON.stringify({ moltbook_key: apiKey, post_id: postId }),
     });
     const d = await res.json();
-    return d.success ? `Clawnch deployed! Contract: ${d.token_address || "pending"}` : `Clawnch: ${d?.error || res.status}`;
+    return d.success
+      ? `Clawnch deployed! Contract: ${d.token_address || "pending"}`
+      : `Clawnch: ${d?.error || res.status}`;
   }
 
-  // Auto-scanned platforms
-  const name = launchpad === "kibu" ? "Kibu" : launchpad === "clawnch" ? "Clawnch" : "4claw";
-  return `${name} auto-scans every minute. Your token will deploy automatically.`;
+  // Auto-scanned platforms (kibu, clawnch via moltx/4claw.org/clawstr)
+  const name =
+    launchpad === "kibu"
+      ? "Kibu"
+      : launchpad === "clawnch"
+        ? "Clawnch"
+        : "4claw";
+  return `${name} auto-scans posts every minute. Token will deploy automatically.`;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -187,33 +247,48 @@ export async function POST(request: Request) {
     } = body;
 
     if (!launchpad || !agent || !token?.name || !token?.symbol) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 },
+      );
     }
+
+    const agentLabel =
+      agent === "moltx"
+        ? "Moltx"
+        : agent === "4claw_org"
+          ? "4claw.org"
+          : agent === "clawstr"
+            ? "Clawstr"
+            : "Moltbook";
 
     let apiKey = existingApiKey || "";
     let evmWallet: { address: string; privateKey: string } | null = null;
     let agentName = "";
 
-    // ── STEP 1: Register agent if no existing key ────────────
-    if (!apiKey) {
-      // All auto-register agents use Moltx infra under the hood
-      if (agent === "moltx" || agent === "4claw_org" || agent === "clawstr") {
-        const agentLabel = agent === "moltx" ? "Moltx" : agent === "4claw_org" ? "4claw.org" : "Clawstr";
-        log.push(`Registering "${token.name}" agent on ${agentLabel}...`);
-        const reg = await registerMoltxAgent(token.name, token.symbol);
-        apiKey = reg.apiKey;
-        agentName = reg.agentName;
-        log.push(`Agent "${reg.agentName}" registered on ${agentLabel}`);
-      }
-      // Moltbook posts need a Moltbook key -- can't auto-register
-      if (agent === "moltbook" && !apiKey) {
-        return NextResponse.json({
-          error: "Moltbook requires an API key. Get one from moltbook.com and enter it in the form.",
-        }, { status: 400 });
-      }
+    // ── STEP 1: Register agent ───────────────────────────────
+    // Moltx, 4claw.org, and Clawstr all use the same Moltx registration API.
+    // They differ in WHERE posts get scanned, not in how you register.
+    if (!apiKey && agent !== "moltbook") {
+      log.push(`Registering "${token.name}" agent on ${agentLabel}...`);
+      const reg = await registerAgent(token.name, token.symbol);
+      apiKey = reg.apiKey;
+      agentName = reg.agentName;
+      log.push(`Agent "${reg.agentName}" registered on ${agentLabel}`);
     }
 
-    // ── STEP 2: Link EVM wallet (only for Moltx agent) ──────
+    // Moltbook requires user-provided key
+    if (agent === "moltbook" && !apiKey) {
+      return NextResponse.json(
+        {
+          error:
+            "Moltbook requires an API key. Get one from moltbook.com and enter it in the form.",
+        },
+        { status: 400 },
+      );
+    }
+
+    // ── STEP 2: Link EVM wallet (ONLY for Moltx agent) ──────
     if (agent === "moltx" && apiKey) {
       try {
         const chainId = token.chain === "base" ? 8453 : 56;
@@ -221,62 +296,39 @@ export async function POST(request: Request) {
         evmWallet = await linkEvmWallet(apiKey, chainId);
         log.push(`Wallet ${evmWallet.address} linked via EIP-712`);
       } catch (e) {
-        log.push(`EVM wallet link failed: ${String(e)} -- will try posting anyway`);
+        log.push(
+          `EVM wallet link warning: ${String(e)} -- will try posting anyway`,
+        );
       }
     }
 
-    // ── STEP 3: Post to the selected agent ───────────────────
+    // ── STEP 3: Post the launch command ──────────────────────
+    // Key insight from skill docs:
+    //   - Moltx agent    -> posts to Moltx API -> auto-scanned by launchpads
+    //   - 4claw.org agent -> posts to Moltx API -> 4claw.org scans /crypto/ from Moltx
+    //   - Clawstr agent   -> posts to Moltx API -> Clawstr scans Nostr relays from Moltx
+    //   - Moltbook agent  -> posts to Moltbook API -> needs API trigger for indexer
+    //
+    // ALL auto-register agents post through Moltx. 4claw.org and Clawstr
+    // are just different scanning layers on top of Moltx posts.
 
-    // === MOLTX ===
-    if (agent === "moltx") {
-      if (!apiKey) return NextResponse.json({ error: "No Moltx API key" }, { status: 400 });
-      const content = buildPostContent(launchpad, token);
-      log.push(`Posting to Moltx...`);
-
-      const res = await fetch(`${MOLTX_API}/posts`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        return NextResponse.json({
-          error: data?.error || data?.message || `Moltx returned ${res.status}`,
-          details: data,
-          log,
-          apiKey: !existingApiKey ? apiKey : undefined,
-          agentName,
-          evmWallet,
-        }, { status: res.status });
-      }
-
-      const postId = data?.data?.id || data?.id || data?.data?.post?.id;
-      log.push(`Posted! ID: ${postId}`);
-
-      const trigger = await triggerLaunchpad(launchpad, "moltx", postId, apiKey);
-      log.push(trigger);
-
-      return NextResponse.json({
-        success: true,
-        message: `Posted to Moltx. ${trigger}`,
-        postId,
-        postUrl: `https://moltx.io/post/${postId}`,
-        autoScanned: launchpad !== "4claw",
-        log,
-        credentials: !existingApiKey ? { apiKey, agentName, evmWallet } : undefined,
-      });
-    }
-
-    // === MOLTBOOK ===
     if (agent === "moltbook") {
-      if (!apiKey) return NextResponse.json({ error: "Moltbook API key required" }, { status: 400 });
+      // === MOLTBOOK: posts to Moltbook API directly ===
       const content = buildMoltbookContent(launchpad, token);
-      const submolt = launchpad === "kibu" ? "kibu" : launchpad === "clawnch" ? "clawnch" : "crypto";
+      const submolt =
+        launchpad === "kibu"
+          ? "kibu"
+          : launchpad === "clawnch"
+            ? "clawnch"
+            : "crypto";
       log.push(`Posting to Moltbook (m/${submolt})...`);
 
       const res = await fetch(`${MOLTBOOK_API}/posts`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           submolt,
           title: `Launching ${token.symbol} token!`,
@@ -285,17 +337,20 @@ export async function POST(request: Request) {
       });
       const data = await res.json();
       if (!res.ok) {
-        return NextResponse.json({
-          error: data?.error || data?.message || `Moltbook returned ${res.status}`,
-          details: data,
-          log,
-        }, { status: res.status });
+        throw new Error(
+          data?.error || data?.message || `Moltbook returned ${res.status}`,
+        );
       }
 
       const postId = data?.post?.id || data?.data?.id || data?.id;
-      log.push(`Posted! ID: ${postId}`);
+      log.push(`Posted to Moltbook! ID: ${postId}`);
 
-      const trigger = await triggerLaunchpad(launchpad, "moltbook", postId, apiKey);
+      const trigger = await triggerLaunchpad(
+        launchpad,
+        "moltbook",
+        postId,
+        apiKey,
+      );
       log.push(trigger);
 
       return NextResponse.json({
@@ -308,77 +363,50 @@ export async function POST(request: Request) {
       });
     }
 
-    // === 4CLAW.ORG ===
-    if (agent === "4claw_org") {
-      if (!apiKey) return NextResponse.json({ error: "No API key for 4claw.org" }, { status: 400 });
-      const content = buildPostContent(launchpad, token);
-      log.push("Posting to 4claw.org /crypto/ board...");
-
-      const res = await fetch("https://www.4claw.org/api/v1/threads", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ board: "crypto", content }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        return NextResponse.json({
-          error: data?.error || data?.message || `4claw.org returned ${res.status}`,
-          details: data,
-          log,
-          credentials: !existingApiKey ? { apiKey, agentName, evmWallet } : undefined,
-        }, { status: res.status });
-      }
-
-      const lp = launchpad === "clawnch" ? "Clawnch" : launchpad === "kibu" ? "Kibu" : "4claw";
-      log.push(`Posted! ${lp} scans /crypto/ every minute.`);
-
-      return NextResponse.json({
-        success: true,
-        message: `Posted to 4claw.org. ${lp} scans every minute -- your token will deploy automatically.`,
-        postId: data?.id || data?.thread?.id,
-        autoScanned: true,
-        log,
-        credentials: !existingApiKey ? { apiKey, agentName, evmWallet } : undefined,
-      });
+    // === ALL OTHER AGENTS (moltx, 4claw_org, clawstr): post to Moltx API ===
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "No API key available" },
+        { status: 400 },
+      );
     }
 
-    // === CLAWSTR ===
-    if (agent === "clawstr") {
-      if (!apiKey) return NextResponse.json({ error: "No API key for Clawstr" }, { status: 400 });
-      const content = buildPostContent(launchpad, token);
-      log.push("Posting to Clawstr (Nostr relays)...");
+    const content = buildPostContent(launchpad, token);
+    log.push(`Posting via ${agentLabel} (Moltx network)...`);
 
-      const res = await fetch("https://clawstr.com/api/v1/posts", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ content }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        return NextResponse.json({
-          error: data?.error || data?.message || `Clawstr returned ${res.status}`,
-          details: data,
-          log,
-          credentials: !existingApiKey ? { apiKey, agentName, evmWallet } : undefined,
-        }, { status: res.status });
-      }
+    const { postId } = await postToMoltx(apiKey, content);
+    log.push(`Posted! ID: ${postId}`);
 
-      const lp = launchpad === "clawnch" ? "Clawnch" : launchpad === "kibu" ? "Kibu" : "4claw";
-      log.push(`Posted! ${lp} scans Nostr relays every minute.`);
+    // Trigger the launchpad indexer
+    const trigger = await triggerLaunchpad(launchpad, "moltx", postId, apiKey);
+    log.push(trigger);
 
-      return NextResponse.json({
-        success: true,
-        message: `Posted to Clawstr. ${lp} scans every minute -- your token will deploy automatically.`,
-        postId: data?.id || data?.event_id,
-        autoScanned: true,
-        log,
-        credentials: !existingApiKey ? { apiKey, agentName, evmWallet } : undefined,
-      });
-    }
+    const lpName =
+      launchpad === "kibu"
+        ? "Kibu"
+        : launchpad === "clawnch"
+          ? "Clawnch"
+          : "4claw";
 
-    return NextResponse.json({ error: `Unknown agent: ${agent}` }, { status: 400 });
+    return NextResponse.json({
+      success: true,
+      message: `Posted via ${agentLabel}. ${trigger}`,
+      postId,
+      postUrl: `https://moltx.io/post/${postId}`,
+      autoScanned: true,
+      log,
+      credentials: !existingApiKey
+        ? { apiKey, agentName, evmWallet }
+        : undefined,
+    });
   } catch (error) {
     console.error("Deploy token error:", error);
-    return NextResponse.json({ error: "Deploy failed", details: String(error), log }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: String(error instanceof Error ? error.message : error),
+        log,
+      },
+      { status: 500 },
+    );
   }
 }
