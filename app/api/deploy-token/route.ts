@@ -31,13 +31,15 @@ function buildPostContent(launchpad: string, token: TokenData): string {
       ? "!4clawd"
       : launchpad === "kibu"
         ? "!kibu"
-        : "!clawnch";
+        : launchpad === "molaunch"
+          ? "!molaunch"
+          : "!clawnch";
   let post = `${cmd}\nname: ${token.name}\nsymbol: ${token.symbol}\nwallet: ${token.wallet}`;
   if (token.description) post += `\ndescription: ${token.description}`;
   if (token.image) post += `\nimage: ${token.image}`;
   if (token.website) post += `\nwebsite: ${token.website}`;
   if (token.twitter) post += `\ntwitter: ${token.twitter}`;
-  if (token.telegram && launchpad === "4claw")
+  if (token.telegram && (launchpad === "4claw" || launchpad === "molaunch"))
     post += `\ntelegram: ${token.telegram}`;
   if ((launchpad === "kibu" || launchpad === "clawnch") && token.chain)
     post += `\nchain: ${token.chain}`;
@@ -47,14 +49,15 @@ function buildPostContent(launchpad: string, token: TokenData): string {
   return post;
 }
 
-// Moltbook-safe content (JSON in code block for markdown safety)
 function buildMoltbookContent(launchpad: string, token: TokenData): string {
   const cmd =
     launchpad === "4claw"
       ? "!4clawd"
       : launchpad === "kibu"
         ? "!kibu"
-        : "!clawnch";
+        : launchpad === "molaunch"
+          ? "!molaunch"
+          : "!clawnch";
   const jsonObj: Record<string, string | number> = {
     name: token.name,
     symbol: token.symbol,
@@ -70,10 +73,7 @@ function buildMoltbookContent(launchpad: string, token: TokenData): string {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// AGENT: MOLTX
-// - Register: POST moltx.io/v1/agents/register (free, instant)
-// - EVM Wallet: MANDATORY for ALL write operations (posts, likes, follows)
-// - Post: POST moltx.io/v1/posts
+// MOLTX AGENT FUNCTIONS
 // ═══════════════════════════════════════════════════════════════
 
 async function registerMoltxAgent(
@@ -102,6 +102,13 @@ async function registerMoltxAgent(
   return { apiKey, agentName };
 }
 
+/**
+ * Link an EVM wallet to a Moltx agent.
+ * Per moltx evm_eip712.md:
+ *   1. POST /agents/me/evm/challenge  -> get typed_data + nonce
+ *   2. Sign with ethers.js v6 signTypedData (strip EIP712Domain, pass domain as-is)
+ *   3. POST /agents/me/evm/verify -> submit nonce + signature
+ */
 async function linkEvmWallet(
   apiKey: string,
   chainId: number,
@@ -110,7 +117,7 @@ async function linkEvmWallet(
   const wallet = Wallet.createRandom();
   log.push(`Generated wallet: ${wallet.address}`);
 
-  // Step 1: Request challenge (exactly per moltx docs)
+  // Step 1: Request challenge
   log.push(`Requesting EIP-712 challenge (chain_id: ${chainId})...`);
   const challengeRes = await fetch(`${MOLTX_API}/agents/me/evm/challenge`, {
     method: "POST",
@@ -121,8 +128,6 @@ async function linkEvmWallet(
     body: JSON.stringify({ address: wallet.address, chain_id: chainId }),
   });
   const challengeBody = await challengeRes.text();
-  console.log("[v0] Challenge status:", challengeRes.status);
-  console.log("[v0] Challenge raw body:", challengeBody);
 
   let challengeData: Record<string, unknown>;
   try {
@@ -137,38 +142,30 @@ async function linkEvmWallet(
     );
   }
 
-  const data = (challengeData as Record<string, unknown>)?.data as Record<string, unknown> | undefined;
-  const nonce = data?.nonce as string | undefined;
-  const typedData = data?.typed_data as Record<string, unknown> | undefined;
+  const cData = (challengeData as Record<string, unknown>)?.data as Record<string, unknown> | undefined;
+  const nonce = cData?.nonce as string | undefined;
+  const typedData = cData?.typed_data as Record<string, unknown> | undefined;
   if (!nonce || !typedData) {
     throw new Error(
-      `Challenge missing fields. Keys: ${JSON.stringify(Object.keys(data || {}))}. Full: ${challengeBody.substring(0, 300)}`,
+      `Challenge missing fields. Keys: ${JSON.stringify(Object.keys(cData || {}))}`,
     );
   }
   log.push(`Challenge received (nonce: ${nonce.substring(0, 8)}...)`);
 
   // Step 2: Sign EIP-712
-  // Per official ethers.js v6 example in moltx docs:
+  // Per moltx evm_eip712.md ethers.js v6 example:
   //   const { EIP712Domain, ...types } = typedData.types;
   //   const signature = await wallet.signTypedData(typedData.domain, types, typedData.message);
-  // Pass domain AS-IS from response. Ethers v6 handles hex chainId natively.
   const allTypes = typedData.types as Record<string, unknown[]>;
   const { EIP712Domain: _unused, ...sigTypes } = allTypes;
-
-  // Domain: pass exactly as received from Moltx, ethers v6 handles "0x38" hex chainId
   const domain = typedData.domain as Record<string, unknown>;
   const message = typedData.message as Record<string, unknown>;
-
-  console.log("[v0] Domain (raw from Moltx):", JSON.stringify(domain));
-  console.log("[v0] SigTypes:", JSON.stringify(Object.keys(sigTypes)));
-  console.log("[v0] Message keys:", JSON.stringify(Object.keys(message)));
 
   log.push("Signing EIP-712 typed data...");
   const signature = await wallet.signTypedData(domain, sigTypes, message);
   log.push(`Signature: ${signature.substring(0, 16)}...`);
-  console.log("[v0] Signature:", signature);
 
-  // Step 3: Verify (exactly per moltx docs)
+  // Step 3: Verify
   log.push("Verifying signature with Moltx...");
   const verifyRes = await fetch(`${MOLTX_API}/agents/me/evm/verify`, {
     method: "POST",
@@ -179,8 +176,6 @@ async function linkEvmWallet(
     body: JSON.stringify({ nonce, signature }),
   });
   const verifyBody = await verifyRes.text();
-  console.log("[v0] Verify status:", verifyRes.status);
-  console.log("[v0] Verify raw body:", verifyBody);
 
   let verifyData: Record<string, unknown>;
   try {
@@ -199,37 +194,72 @@ async function linkEvmWallet(
   return { address: wallet.address, privateKey: wallet.privateKey };
 }
 
-async function postToMoltx(
+/**
+ * Post to Moltx with retry.
+ * If first attempt fails with "EVM wallet required", re-link wallet and retry once.
+ */
+async function postToMoltxWithRetry(
   apiKey: string,
   content: string,
+  chainId: number,
+  log: string[],
+  evmWalletRef: { current: { address: string; privateKey: string } | null },
 ): Promise<{ postId: string }> {
-  console.log("[v0] Posting to Moltx with content length:", content.length);
-  const res = await fetch(`${MOLTX_API}/posts`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ content }),
-  });
-  const data = await res.json();
-  console.log("[v0] Moltx post response status:", res.status);
-  console.log("[v0] Moltx post response:", JSON.stringify(data, null, 2));
-  if (!res.ok) {
-    throw new Error(
-      data?.error || data?.message || `Moltx post failed (${res.status})`,
-    );
+  const MAX_RETRIES = 2;
+
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const res = await fetch(`${MOLTX_API}/posts`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ content }),
+    });
+    const body = await res.text();
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(body);
+    } catch {
+      throw new Error(`Moltx post returned non-JSON: ${body.substring(0, 200)}`);
+    }
+
+    if (res.ok) {
+      const postId =
+        (data as Record<string, unknown>)?.data &&
+        typeof (data as Record<string, unknown>).data === "object"
+          ? ((data as Record<string, Record<string, unknown>>).data?.id as string) ||
+            ((data as Record<string, Record<string, Record<string, unknown>>>).data?.post?.id as string)
+          : (data as Record<string, unknown>)?.id as string;
+      return { postId: postId || "unknown" };
+    }
+
+    const errMsg = (data?.error as string) || (data?.message as string) || `Moltx post failed (${res.status})`;
+
+    // If "EVM wallet required" and we haven't exhausted retries, re-link wallet
+    if (errMsg.toLowerCase().includes("evm wallet required") && attempt < MAX_RETRIES) {
+      log.push(`Post attempt ${attempt} failed: EVM wallet required. Re-linking wallet...`);
+      try {
+        const newWallet = await linkEvmWallet(apiKey, chainId, log);
+        evmWalletRef.current = newWallet;
+        log.push("Wallet re-linked. Retrying post...");
+        // Small delay to let Moltx propagate the wallet link
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      } catch (relinkErr) {
+        log.push(`Re-link failed: ${String(relinkErr)}`);
+        throw new Error(errMsg);
+      }
+    }
+
+    throw new Error(errMsg);
   }
-  const postId =
-    data?.data?.id || data?.id || data?.data?.post?.id || "unknown";
-  return { postId };
+
+  throw new Error("Post failed after all retries");
 }
 
 // ═══════════════════════════════════════════════════════════════
-// AGENT: 4CLAW.ORG
-// - Register: POST www.4claw.org/api/v1/agents/register (free, instant)
-// - EVM Wallet: NOT NEEDED
-// - Post: POST www.4claw.org/api/v1/boards/crypto/threads
+// 4CLAW.ORG AGENT FUNCTIONS (NO EVM wallet needed)
 // ═══════════════════════════════════════════════════════════════
 
 async function register4clawOrgAgent(
@@ -284,14 +314,6 @@ async function postTo4clawOrg(
   return { postId };
 }
 
-// ═══════════════════════════════════════════════════════════════
-// AGENT: CLAWSTR (Nostr-based, auto-scanned)
-// - Register: Uses Moltx registration (Clawstr scans Moltx posts via Nostr relays)
-// - EVM Wallet: YES (because it posts through Moltx)
-// - Post: Through Moltx API
-// ═══════════════════════════════════════════════════════════════
-// (Reuses Moltx functions above)
-
 // ── Trigger launchpad indexer ────────────────────────────────────
 async function triggerLaunchpad(
   launchpad: string,
@@ -330,7 +352,36 @@ async function triggerLaunchpad(
       : `Clawnch: ${d?.error || res.status}`;
   }
 
-  // Auto-scanned platforms
+  // Molaunch triggers via Moltx post_id
+  if (launchpad === "molaunch") {
+    try {
+      // Try bags.fourclaw.fun first, then pump, then clanker
+      const endpoints = [
+        "https://bags.fourclaw.fun/api/launch",
+        "https://pump.fourclaw.fun/api/launch",
+        "https://clanker.fourclaw.fun/api/launch",
+      ];
+      for (const endpoint of endpoints) {
+        try {
+          const res = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ post_id: postId }),
+          });
+          const d = await res.json();
+          if (d.success || d.job_id) {
+            return `Molaunch queued! Job: ${d.job_id || "processing"}. Status: ${d.status_url || "check bags.fm"}`;
+          }
+        } catch {
+          continue;
+        }
+      }
+      return "Molaunch will auto-scan the Moltx post within 1 minute.";
+    } catch {
+      return "Molaunch will auto-scan the Moltx post within 1 minute.";
+    }
+  }
+
   const name =
     launchpad === "kibu"
       ? "Kibu"
@@ -368,15 +419,10 @@ export async function POST(request: Request) {
     }
 
     let apiKey = existingApiKey || "";
-    let evmWallet: { address: string; privateKey: string } | null = null;
+    const evmWalletRef: { current: { address: string; privateKey: string } | null } = { current: null };
     let agentName = "";
 
-    // ─────────────────────────────────────────────────────────
-    // ROUTE BY AGENT
-    // ─────────────────────────────────────────────────────────
-
     // ── MOLTX AGENT ──
-    // Register on Moltx -> Link EVM wallet -> Post to Moltx
     if (agent === "moltx") {
       if (!apiKey) {
         log.push(`Registering "${token.name}" agent on Moltx...`);
@@ -386,17 +432,19 @@ export async function POST(request: Request) {
         log.push(`Agent "${reg.agentName}" registered on Moltx`);
       }
 
-      // EVM wallet is MANDATORY for Moltx posting
+      // Link EVM wallet (mandatory for posting)
       const chainId = token.chain === "base" ? 8453 : 56;
-      evmWallet = await linkEvmWallet(apiKey, chainId, log);
+      evmWalletRef.current = await linkEvmWallet(apiKey, chainId, log);
 
-      // Post to Moltx
+      // Small delay to let Moltx propagate wallet link
+      await new Promise((r) => setTimeout(r, 1500));
+
+      // Post with retry (re-links wallet if first attempt fails)
       const content = buildPostContent(launchpad, token);
       log.push("Posting to Moltx...");
-      const { postId } = await postToMoltx(apiKey, content);
+      const { postId } = await postToMoltxWithRetry(apiKey, content, chainId, log, evmWalletRef);
       log.push(`Posted to Moltx! ID: ${postId}`);
 
-      // Trigger launchpad
       const trigger = await triggerLaunchpad(launchpad, "moltx", postId, apiKey);
       log.push(trigger);
 
@@ -407,14 +455,15 @@ export async function POST(request: Request) {
         postUrl: `https://moltx.io/post/${postId}`,
         autoScanned: true,
         log,
+        tokenName: token.name,
+        tokenSymbol: token.symbol,
         credentials: !existingApiKey
-          ? { apiKey, agentName, evmWallet }
+          ? { apiKey, agentName, evmWallet: evmWalletRef.current }
           : undefined,
       });
     }
 
-    // ── 4CLAW.ORG AGENT ──
-    // Register on 4claw.org -> Post to /crypto/ board -> NO EVM wallet needed
+    // ── 4CLAW.ORG AGENT ── (NO EVM wallet needed)
     if (agent === "4claw_org") {
       if (!apiKey) {
         log.push(`Registering "${token.name}" agent on 4claw.org...`);
@@ -424,13 +473,11 @@ export async function POST(request: Request) {
         log.push(`Agent "${reg.agentName}" registered on 4claw.org`);
       }
 
-      // Post to 4claw.org /crypto/ board -- NO EVM wallet needed
       const content = buildPostContent(launchpad, token);
       log.push("Posting to 4claw.org /crypto/ board...");
       const { postId } = await postTo4clawOrg(apiKey, content, token.name);
       log.push(`Posted to 4claw.org! Thread ID: ${postId}`);
 
-      // Trigger launchpad
       const trigger = await triggerLaunchpad(launchpad, "4claw_org", postId, apiKey);
       log.push(trigger);
 
@@ -441,15 +488,15 @@ export async function POST(request: Request) {
         postUrl: `https://www.4claw.org/crypto/thread/${postId}`,
         autoScanned: true,
         log,
+        tokenName: token.name,
+        tokenSymbol: token.symbol,
         credentials: !existingApiKey
           ? { apiKey, agentName }
           : undefined,
       });
     }
 
-    // ── CLAWSTR AGENT ──
-    // Clawstr auto-scans Moltx posts via Nostr relays. 
-    // So we register on Moltx + link EVM wallet + post to Moltx (same as Moltx agent).
+    // ── CLAWSTR AGENT ── (Uses Moltx registration + EVM wallet)
     if (agent === "clawstr") {
       if (!apiKey) {
         log.push(`Registering "${token.name}" agent on Moltx (for Clawstr relay)...`);
@@ -459,14 +506,14 @@ export async function POST(request: Request) {
         log.push(`Agent "${reg.agentName}" registered`);
       }
 
-      // EVM wallet is MANDATORY for Moltx posting (Clawstr uses Moltx under the hood)
       const chainId = token.chain === "base" ? 8453 : 56;
-      evmWallet = await linkEvmWallet(apiKey, chainId, log);
+      evmWalletRef.current = await linkEvmWallet(apiKey, chainId, log);
 
-      // Post to Moltx (Clawstr auto-scans)
+      await new Promise((r) => setTimeout(r, 1500));
+
       const content = buildPostContent(launchpad, token);
       log.push("Posting to Moltx (Clawstr auto-scans)...");
-      const { postId } = await postToMoltx(apiKey, content);
+      const { postId } = await postToMoltxWithRetry(apiKey, content, chainId, log, evmWalletRef);
       log.push(`Posted! ID: ${postId}`);
 
       const trigger = await triggerLaunchpad(launchpad, "moltx", postId, apiKey);
@@ -479,21 +526,19 @@ export async function POST(request: Request) {
         postUrl: `https://moltx.io/post/${postId}`,
         autoScanned: true,
         log,
+        tokenName: token.name,
+        tokenSymbol: token.symbol,
         credentials: !existingApiKey
-          ? { apiKey, agentName, evmWallet }
+          ? { apiKey, agentName, evmWallet: evmWalletRef.current }
           : undefined,
       });
     }
 
     // ── MOLTBOOK AGENT ──
-    // User provides their own Moltbook API key -> Post to Moltbook -> NO EVM wallet
     if (agent === "moltbook") {
       if (!apiKey) {
         return NextResponse.json(
-          {
-            error:
-              "Moltbook requires an API key. Get one from moltbook.com and enter it.",
-          },
+          { error: "Moltbook requires an API key. Get one from moltbook.com." },
           { status: 400 },
         );
       }
@@ -504,7 +549,9 @@ export async function POST(request: Request) {
           ? "kibu"
           : launchpad === "clawnch"
             ? "clawnch"
-            : "crypto";
+            : launchpad === "molaunch"
+              ? "molaunch"
+              : "crypto";
       log.push(`Posting to Moltbook (m/${submolt})...`);
 
       const res = await fetch(`${MOLTBOOK_API}/posts`, {
@@ -529,12 +576,7 @@ export async function POST(request: Request) {
       const postId = data?.post?.id || data?.data?.id || data?.id;
       log.push(`Posted to Moltbook! ID: ${postId}`);
 
-      const trigger = await triggerLaunchpad(
-        launchpad,
-        "moltbook",
-        postId,
-        apiKey,
-      );
+      const trigger = await triggerLaunchpad(launchpad, "moltbook", postId, apiKey);
       log.push(trigger);
 
       return NextResponse.json({
@@ -544,6 +586,8 @@ export async function POST(request: Request) {
         postUrl: `https://www.moltbook.com/post/${postId}`,
         autoScanned: false,
         log,
+        tokenName: token.name,
+        tokenSymbol: token.symbol,
       });
     }
 

@@ -8,6 +8,7 @@ import { LaunchForm } from "@/components/launch-form";
 import { TokenFeed } from "@/components/token-feed";
 import { RecentLaunches } from "@/components/recent-launches";
 import { AutoLaunchPanel } from "@/components/auto-launch";
+import { DeployedTokensBox } from "@/components/deployed-tokens-box";
 
 export interface TokenPrefill {
   name: string;
@@ -66,6 +67,11 @@ export default function Page() {
           </div>
         </div>
 
+        {/* Deployed Tokens History */}
+        <section className="mt-4">
+          <DeployedTokensBox />
+        </section>
+
         {/* Footer */}
         <footer className="mt-10 border-t border-border pt-5 pb-6">
           <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
@@ -78,12 +84,13 @@ export default function Page() {
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
-              <span>4claw (BSC) | Kibu (BSC/Base) | Clawnch (Base)</span>
+              <span>4claw (BSC) | Kibu (BSC/Base) | Clawnch (Base) | Molaunch (SOL)</span>
               <span className="hidden sm:inline">|</span>
               {[
                 { label: "4claw Docs", url: "https://4claw.fun" },
                 { label: "Kibu Docs", url: "https://kibu.bot" },
                 { label: "Clawnch Docs", url: "https://clawn.ch" },
+                { label: "Molaunch Docs", url: "https://fourclaw.fun" },
               ].map((link) => (
                 <a
                   key={link.label}

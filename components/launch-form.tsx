@@ -25,11 +25,12 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { TokenPrefill } from "@/app/page";
+import { addDeployedToken } from "@/components/deployed-tokens-box";
 
 // ─── Platform definitions ─────────────────────────────────────
 const DEFAULT_ADMIN = "0x9c6111C77CBE545B9703243F895EB593f2721C7a";
 
-type LaunchpadId = "4claw" | "kibu" | "clawnch";
+type LaunchpadId = "4claw" | "kibu" | "clawnch" | "molaunch";
 type AgentId = "moltx" | "moltbook" | "4claw_org" | "clawstr";
 
 interface LaunchpadInfo {
@@ -85,6 +86,17 @@ const LAUNCHPADS: Record<LaunchpadId, LaunchpadInfo> = {
     supportsTax: false,
     docUrl: "https://clawn.ch/skill",
     color: "text-[#0052FF]",
+  },
+  molaunch: {
+    label: "Molaunch",
+    chain: "solana",
+    chains: ["solana"],
+    fee: "Free",
+    rateLimit: "1/24h",
+    agents: ["moltx", "moltbook"],
+    supportsTax: false,
+    docUrl: "https://bags.fourclaw.fun/skill.md",
+    color: "text-[#9945FF]",
   },
 };
 
@@ -232,7 +244,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
 
   // ── Build preview ───────────────────────────────────────────
   const buildPreview = useCallback((): string => {
-    const cmd = launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : "!clawnch";
+    const cmd = launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : launchpad === "molaunch" ? "!molaunch" : "!clawnch";
     let post = `${cmd}\nname: ${name}\nsymbol: ${symbol.toUpperCase()}\nwallet: ${activeWallet}`;
     if (description) post += `\ndescription: ${description}`;
     if (imageUrl) post += `\nimage: ${imageUrl}`;
@@ -298,6 +310,14 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
       if (data.log) setDeployLog(data.log);
 
       if (data.success) {
+        addDeployedToken({
+          name: data.tokenName || name,
+          symbol: data.tokenSymbol || symbol.toUpperCase(),
+          postUrl: data.postUrl,
+          launchpad,
+          agent,
+          timestamp: Date.now(),
+        });
         setDeployResult({
           success: true,
           message: data.message,
@@ -361,7 +381,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
         <Label className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 block">
           1. Launchpad
         </Label>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {(Object.entries(LAUNCHPADS) as [LaunchpadId, LaunchpadInfo][]).map(([id, info]) => (
             <button
               key={id}
@@ -667,8 +687,8 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
           <div className="rounded-md bg-accent/10 border border-accent/20 px-3 py-2">
             <p className="text-[9px] text-accent leading-relaxed">
               {agentInfo.autoRegister
-                ? `Click Deploy to auto-register a "${name || "your token"}" agent on ${agentInfo.label}${(agent === "moltx" || agent === "clawstr") ? " (with EVM wallet)" : ""}, post the ${launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : "!clawnch"} command via ${agentInfo.label}, and trigger ${lpInfo.label} deployment.`
-                : `Click Deploy to post the ${launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : "!clawnch"} command to ${agentInfo.label} using your API key and trigger ${lpInfo.label} deployment.`
+                ? `Click Deploy to auto-register a "${name || "your token"}" agent on ${agentInfo.label}${(agent === "moltx" || agent === "clawstr") ? " (with EVM wallet)" : ""}, post the ${launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : launchpad === "molaunch" ? "!molaunch" : "!clawnch"} command via ${agentInfo.label}, and trigger ${lpInfo.label} deployment.`
+                : `Click Deploy to post the ${launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : launchpad === "molaunch" ? "!molaunch" : "!clawnch"} command to ${agentInfo.label} using your API key and trigger ${lpInfo.label} deployment.`
               }
               {" "}Cost: {lpInfo.fee}. Rate: {lpInfo.rateLimit}.
             </p>

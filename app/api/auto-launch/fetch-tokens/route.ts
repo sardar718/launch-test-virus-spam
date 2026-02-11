@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-// Rotate between 3 different free APIs for variety
+// Rotate between 5 different free API sources for variety
 const SOURCES = [
   {
     id: "gecko_bsc",
@@ -40,19 +40,49 @@ interface AutoToken {
   source: string;
 }
 
-function parseGeckoPool(pool: Record<string, unknown>, included: Record<string, unknown>[], chain: string): AutoToken | null {
+/**
+ * Parse a GeckoTerminal pool + its included base_token data.
+ * Each pool links to a unique base_token which has its own image_url.
+ */
+function parseGeckoPool(
+  pool: Record<string, unknown>,
+  included: Record<string, unknown>[],
+  chain: string,
+): AutoToken | null {
   const a = pool.attributes as Record<string, unknown>;
   if (!a) return null;
+
   const nameParts = ((a.name as string) || "").split(" / ");
-  const baseTokenId = ((pool.relationships as Record<string, Record<string, Record<string, string>>>)?.base_token?.data?.id) || "";
+
+  // Find the base token in the included array by matching the relationship ID
+  const relationships = pool.relationships as Record<string, Record<string, Record<string, string>>> | undefined;
+  const baseTokenId = relationships?.base_token?.data?.id || "";
   const tokenInfo = included.find((i: Record<string, unknown>) => i.id === baseTokenId);
   const ta = tokenInfo?.attributes as Record<string, unknown> | undefined;
+
+  // Extract the token-specific image URL from the included token data
+  let imageUrl: string | undefined;
+  if (ta?.image_url && typeof ta.image_url === "string" && ta.image_url.startsWith("http")) {
+    imageUrl = ta.image_url;
+  }
+
+  // Also check for token logo in the token info links or coingecko data
+  if (!imageUrl && ta?.coingecko_coin_id) {
+    imageUrl = `https://assets.coingecko.com/coins/images/${ta.coingecko_coin_id}/small/logo.png`;
+  }
+
+  // Extract website from token info
+  let website: string | undefined;
+  const websites = ta?.websites as string[] | undefined;
+  if (websites && websites.length > 0) {
+    website = websites[0];
+  }
 
   return {
     name: (ta?.name as string) || nameParts[0] || "Unknown",
     symbol: (ta?.symbol as string) || nameParts[0]?.split(" ").pop() || "???",
-    imageUrl: (ta?.image_url as string) || undefined,
-    website: ((ta?.websites as string[]) || [])[0] || undefined,
+    imageUrl,
+    website,
     description: (ta?.description as string) || undefined,
     volume24h: (a.volume_usd as Record<string, string>)?.h24 || "0",
     chain,
@@ -60,22 +90,37 @@ function parseGeckoPool(pool: Record<string, unknown>, included: Record<string, 
   };
 }
 
+/**
+ * Parse a DexScreener pair.
+ * Each pair has its own info.imageUrl for the token's unique logo.
+ */
 function parseDexPair(pair: Record<string, unknown>): AutoToken | null {
   const bt = pair.baseToken as Record<string, string>;
   if (!bt) return null;
+
   const info = pair.info as Record<string, unknown> | undefined;
   const websites = (info?.websites as { url: string }[]) || [];
   const socials = (info?.socials as { type: string; url: string }[]) || [];
   const twitter = socials.find((s) => s.type === "twitter");
 
+  // Per-token image from DexScreener's info object
+  let imageUrl: string | undefined;
+  if (info?.imageUrl && typeof info.imageUrl === "string" && (info.imageUrl as string).startsWith("http")) {
+    imageUrl = info.imageUrl as string;
+  }
+  // Also try header image
+  if (!imageUrl && info?.header && typeof info.header === "string" && (info.header as string).startsWith("http")) {
+    imageUrl = info.header as string;
+  }
+
   return {
     name: bt.name || "Unknown",
     symbol: bt.symbol || "???",
-    imageUrl: (info?.imageUrl as string) || undefined,
+    imageUrl,
     website: websites[0]?.url || twitter?.url || undefined,
     description: undefined,
     volume24h: ((pair.volume as Record<string, number>)?.h24 || 0).toString(),
-    chain: (pair.chainId as string) === "bsc" ? "bsc" : "base",
+    chain: (pair.chainId as string) === "bsc" ? "bsc" : (pair.chainId as string) === "base" ? "base" : (pair.chainId as string) || "bsc",
     source: "dexscreener",
   };
 }
@@ -124,8 +169,14 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     return NextResponse.json(
-      { error: String(error), source: src.label, sourceIndex, nextSourceIndex: (sourceIndex + 1) % SOURCES.length, tokens: [] },
-      { status: 200 }, // Return 200 so the loop doesn't break
+      {
+        error: String(error),
+        source: src.label,
+        sourceIndex,
+        nextSourceIndex: (sourceIndex + 1) % SOURCES.length,
+        tokens: [],
+      },
+      { status: 200 },
     );
   }
 }

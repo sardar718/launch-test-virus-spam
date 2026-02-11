@@ -7,9 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+import { addDeployedToken } from "@/components/deployed-tokens-box";
+
 const DEFAULT_ADMIN = "0x9c6111C77CBE545B9703243F895EB593f2721C7a";
 
-type Launchpad = "4claw" | "kibu" | "clawnch";
+type Launchpad = "4claw" | "kibu" | "clawnch" | "molaunch";
 type Agent = "moltx" | "4claw_org" | "moltbook" | "clawstr";
 
 interface AutoToken {
@@ -33,6 +35,7 @@ const LP_OPTIONS: { id: Launchpad; label: string; chains: string[] }[] = [
   { id: "4claw", label: "4claw", chains: ["bsc"] },
   { id: "kibu", label: "Kibu", chains: ["bsc", "base"] },
   { id: "clawnch", label: "Clawnch", chains: ["base"] },
+  { id: "molaunch", label: "Molaunch", chains: ["solana"] },
 ];
 
 const AGENT_OPTIONS: { id: Agent; label: string }[] = [
@@ -49,6 +52,8 @@ export function AutoLaunchPanel() {
   const [minVolume, setMinVolume] = useState("100");
   const [delaySeconds, setDelaySeconds] = useState("30");
   const [maxLaunches, setMaxLaunches] = useState("10");
+  const [useCustomWallet, setUseCustomWallet] = useState(false);
+  const [customWallet, setCustomWallet] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [stats, setStats] = useState({ launched: 0, skipped: 0, errors: 0 });
   const [launched, setLaunched] = useState<Set<string>>(new Set());
@@ -56,13 +61,17 @@ export function AutoLaunchPanel() {
   const sourceRef = useRef(0);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
+  const activeWallet = useCustomWallet && customWallet.trim() ? customWallet.trim() : DEFAULT_ADMIN;
+
+  // Only scroll within the log container, NOT the page
   const addLog = useCallback((msg: string, type: LogEntry["type"] = "info") => {
     const time = new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
     setLogs((prev) => {
       const next = [...prev, { time, msg, type }];
       return next.length > 200 ? next.slice(-200) : next;
     });
-    setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+    // Scroll within log container only (block: "nearest" prevents page scroll)
+    setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
   }, []);
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -83,7 +92,6 @@ export function AutoLaunchPanel() {
 
   const deployToken = async (token: AutoToken): Promise<boolean> => {
     const desc = token.description || (await generateDesc(token.name, token.symbol));
-    const tokenChain = chain;
 
     const body = {
       launchpad,
@@ -91,11 +99,12 @@ export function AutoLaunchPanel() {
       token: {
         name: token.name,
         symbol: token.symbol.toUpperCase(),
-        wallet: DEFAULT_ADMIN,
+        wallet: activeWallet,
         description: desc,
+        // Pass the actual token image (each token has its own from the API)
         image: token.imageUrl || "",
         website: token.website || "",
-        chain: tokenChain,
+        chain,
       },
     };
 
@@ -108,6 +117,14 @@ export function AutoLaunchPanel() {
 
     if (data.success) {
       addLog(`Deployed ${token.symbol}! Post: ${data.postUrl || data.postId}`, "success");
+      addDeployedToken({
+        name: token.name,
+        symbol: token.symbol.toUpperCase(),
+        postUrl: data.postUrl,
+        launchpad,
+        agent,
+        timestamp: Date.now(),
+      });
       return true;
     }
     addLog(`Deploy failed for ${token.symbol}: ${data.error}`, "error");
@@ -125,10 +142,9 @@ export function AutoLaunchPanel() {
     const vol = Number.parseFloat(minVolume) || 0;
     let totalLaunched = 0;
 
-    addLog(`Auto-launch started: ${LP_OPTIONS.find((l) => l.id === launchpad)?.label} via ${AGENT_OPTIONS.find((a) => a.id === agent)?.label} | Chain: ${chain} | Max: ${max}`);
+    addLog(`Auto-launch started: ${LP_OPTIONS.find((l) => l.id === launchpad)?.label} via ${AGENT_OPTIONS.find((a) => a.id === agent)?.label} | Chain: ${chain} | Max: ${max} | Wallet: ${activeWallet.substring(0, 8)}...`);
 
     while (!abortRef.current && totalLaunched < max) {
-      // Fetch from rotating source
       addLog(`Fetching tokens (source #${sourceRef.current + 1})...`);
       try {
         const r = await fetch(`/api/auto-launch/fetch-tokens?sourceIndex=${sourceRef.current}&minVolume=${vol}`);
@@ -158,7 +174,11 @@ export function AutoLaunchPanel() {
             continue;
           }
 
-          addLog(`Launching: ${token.name} ($${token.symbol}) | Vol: $${Number(token.volume24h || 0).toLocaleString()}`);
+          // Log image info for debugging
+          const hasImage = token.imageUrl && token.imageUrl.startsWith("http");
+          addLog(
+            `Launching: ${token.name} ($${token.symbol}) | Vol: $${Number(token.volume24h || 0).toLocaleString()}${hasImage ? " | Has image" : " | No image"}`,
+          );
 
           try {
             const ok = await deployToken(token);
@@ -175,7 +195,6 @@ export function AutoLaunchPanel() {
             setStats((p) => ({ ...p, errors: p.errors + 1 }));
           }
 
-          // Delay between launches
           if (!abortRef.current && totalLaunched < max) {
             addLog(`Waiting ${delaySeconds}s before next...`);
             await sleep(delay);
@@ -228,7 +247,7 @@ export function AutoLaunchPanel() {
         <div className="grid grid-cols-2 gap-2">
           <div>
             <Label className="text-[10px] text-muted-foreground mb-1 block">Launchpad</Label>
-            <div className="flex gap-1">
+            <div className="flex flex-wrap gap-1">
               {LP_OPTIONS.map((lp) => (
                 <button
                   key={lp.id}
@@ -336,9 +355,34 @@ export function AutoLaunchPanel() {
           </div>
         </div>
 
-        {/* Admin wallet */}
-        <div className="text-[9px] text-muted-foreground bg-secondary/50 rounded px-2 py-1">
-          Admin: <span className="font-mono text-foreground">{DEFAULT_ADMIN.substring(0, 10)}...{DEFAULT_ADMIN.substring(36)}</span>
+        {/* Admin wallet with custom option */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <Label className="text-[10px] text-muted-foreground">Admin Wallet</Label>
+            <button
+              type="button"
+              onClick={() => setUseCustomWallet(!useCustomWallet)}
+              disabled={running}
+              className="text-[9px] text-primary hover:underline disabled:opacity-50"
+            >
+              {useCustomWallet ? "Use default" : "Custom address"}
+            </button>
+          </div>
+          {useCustomWallet ? (
+            <Input
+              placeholder="0x..."
+              value={customWallet}
+              onChange={(e) => setCustomWallet(e.target.value)}
+              disabled={running}
+              className="h-7 text-xs bg-secondary border-border font-mono"
+            />
+          ) : (
+            <div className="text-[9px] text-muted-foreground bg-secondary/50 rounded px-2 py-1">
+              <span className="font-mono text-foreground">
+                {DEFAULT_ADMIN.substring(0, 10)}...{DEFAULT_ADMIN.substring(36)}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Stats */}
@@ -379,7 +423,7 @@ export function AutoLaunchPanel() {
           )}
         </div>
 
-        {/* Log */}
+        {/* Log -- scroll stays WITHIN this container, no page pull */}
         {logs.length > 0 && (
           <div className="max-h-48 overflow-y-auto rounded bg-background/80 border border-border p-2 font-mono text-[9px] space-y-0.5">
             {logs.map((l, i) => (
