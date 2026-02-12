@@ -5,7 +5,6 @@ import { Header } from "@/components/header";
 import { StatsBar } from "@/components/stats-bar";
 import { TrendingMemecoins, type TrendingToken } from "@/components/trending-memecoins";
 import { LaunchForm } from "@/components/launch-form";
-import { TokenFeed } from "@/components/token-feed";
 import { RecentLaunches } from "@/components/recent-launches";
 import { AutoLaunchPanel } from "@/components/auto-launch";
 import { DeployedTokensBox } from "@/components/deployed-tokens-box";
@@ -62,17 +61,12 @@ export default function Page() {
             <RecentLaunches />
           </div>
 
-          {/* Right: Token Feed + Auto Launch */}
+          {/* Right: Auto Launch + Deployed Tokens */}
           <div className="space-y-4 lg:col-span-7">
             <AutoLaunchPanel />
-            <TokenFeed />
+            <DeployedTokensBox />
           </div>
         </div>
-
-        {/* Deployed Tokens History */}
-        <section className="mt-4">
-          <DeployedTokensBox />
-        </section>
 
         {/* Footer */}
         <footer className="mt-10 border-t border-border pt-5 pb-6">

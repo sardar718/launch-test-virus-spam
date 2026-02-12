@@ -2,7 +2,7 @@
 
 import useSWR from "swr";
 import { useState } from "react";
-import { ExternalLink, Rocket, RefreshCw } from "lucide-react";
+import { ExternalLink, Rocket, RefreshCw, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
@@ -23,6 +23,8 @@ interface LaunchToken {
   tax?: number;
   chain?: string;
   source?: string;
+  volume24h?: string | null;
+  priceUsd?: string | null;
 }
 
 const SOURCES = [
@@ -34,6 +36,15 @@ const SOURCES = [
 function truncateAddress(addr: string | undefined): string {
   if (!addr) return "--";
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+}
+
+function formatVolume(value: string | null | undefined): string {
+  if (!value) return "--";
+  const num = Number.parseFloat(value);
+  if (Number.isNaN(num) || num === 0) return "--";
+  if (num >= 1_000_000) return `$${(num / 1_000_000).toFixed(1)}M`;
+  if (num >= 1_000) return `$${(num / 1_000).toFixed(1)}K`;
+  return `$${num.toFixed(0)}`;
 }
 
 export function RecentLaunches() {
@@ -162,6 +173,12 @@ export function RecentLaunches() {
                     {launch.symbol && (
                       <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-mono text-accent">
                         ${launch.symbol}
+                      </span>
+                    )}
+                    {launch.volume24h && launch.volume24h !== "--" && (
+                      <span className="flex items-center gap-0.5 rounded bg-chart-3/10 px-1.5 py-0.5 text-[10px] font-mono text-chart-3">
+                        <BarChart3 className="h-2.5 w-2.5" />
+                        {formatVolume(launch.volume24h)}
                       </span>
                     )}
                     {launch.tax != null && launch.tax > 0 && (

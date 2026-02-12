@@ -542,28 +542,13 @@ export async function POST(request: Request) {
       });
     }
 
-    // ── MOLTBOOK AGENT ──
+    // ── MOLTBOOK AGENT ── (requires pre-claimed API key)
     if (agent === "moltbook") {
       if (!apiKey) {
-        // Auto-register on Moltbook
-        log.push(`Registering "${token.name}" agent on Moltbook...`);
-        const mbAgentName = `${token.name.toLowerCase().replace(/[^a-z0-9]/g, "")}_${Date.now().toString(36)}`;
-        const regRes = await fetch(`${MOLTBOOK_API}/agents/register`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: mbAgentName,
-            description: `Token launcher for $${token.symbol} (${token.name})`,
-          }),
-        });
-        const regData = await regRes.json();
-        if (!regRes.ok) {
-          throw new Error(regData?.error || regData?.message || `Moltbook register failed (${regRes.status})`);
-        }
-        apiKey = regData?.agent?.api_key || regData?.api_key || "";
-        agentName = regData?.agent?.name || mbAgentName;
-        if (!apiKey) throw new Error("Moltbook registered but no API key returned");
-        log.push(`Agent "${agentName}" registered on Moltbook`);
+        return NextResponse.json(
+          { error: "Moltbook requires a claimed API key. Register at moltbook.com, claim your agent, then enter the key." },
+          { status: 400 },
+        );
       }
 
       const content = buildMoltbookContent(launchpad, token, kibuPlatform);
@@ -611,9 +596,6 @@ export async function POST(request: Request) {
         log,
         tokenName: token.name,
         tokenSymbol: token.symbol,
-        credentials: !existingApiKey && agentName
-          ? { apiKey, agentName }
-          : undefined,
       });
     }
 

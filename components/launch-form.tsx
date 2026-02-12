@@ -110,9 +110,9 @@ const AGENTS: Record<AgentId, AgentInfo> = {
   },
   moltbook: {
     label: "Moltbook",
-    note: "Auto/Key",
-    autoRegister: true,
-    needsKey: false,
+    note: "API key needed",
+    autoRegister: false,
+    needsKey: true,
     keyPlaceholder: "moltbook_...",
   },
   "4claw_org": {
@@ -182,8 +182,30 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
   // Moltbook key (only needed for Moltbook agent)
   const [moltbookKey, setMoltbookKey] = useState("");
 
-  // AI desc
+  // AI desc + social suggest
   const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
+  const [isSuggestingTwitter, setIsSuggestingTwitter] = useState(false);
+  const [isSuggestingWebsite, setIsSuggestingWebsite] = useState(false);
+
+  async function handleSuggestSocial(field: "twitter" | "website") {
+    if (!name.trim()) return;
+    const setter = field === "twitter" ? setIsSuggestingTwitter : setIsSuggestingWebsite;
+    setter(true);
+    try {
+      const res = await fetch("/api/suggest-socials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, symbol, field }),
+      });
+      const data = await res.json();
+      if (data.value) {
+        if (field === "twitter") setTwitter(data.value);
+        else setWebsite(data.value);
+      }
+    } catch { /* ignore */ } finally {
+      setter(false);
+    }
+  }
 
   // Deploy state
   const [isDeploying, setIsDeploying] = useState(false);
@@ -199,7 +221,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
   const taxDistTotal = funds + burn + holders + lp;
   const taxDistValid = taxDistTotal === 100;
 
-  // Handle prefill from trending tokens
+  // Handle prefill from trending tokens -- auto-fill everything + auto-generate desc
   useEffect(() => {
     if (prefill) {
       setName(prefill.name);
@@ -209,10 +231,24 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
         setWebsite(prefill.website);
         setShowAdvanced(true);
       }
-      if (prefill.description) setDescription(prefill.description);
       if (prefill.twitter) {
         setTwitter(prefill.twitter);
         setShowAdvanced(true);
+      }
+      // Auto-generate description via AI if not already provided
+      if (prefill.description) {
+        setDescription(prefill.description);
+      } else if (prefill.name && prefill.symbol) {
+        setIsGeneratingDesc(true);
+        fetch("/api/generate-description", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: prefill.name, symbol: prefill.symbol }),
+        })
+          .then((r) => r.json())
+          .then((d) => { if (d.description) setDescription(d.description); })
+          .catch(() => {})
+          .finally(() => setIsGeneratingDesc(false));
       }
     }
   }, [prefill]);
@@ -366,7 +402,8 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
   const canDeploy =
     name.trim() &&
     symbol.trim() &&
-    (!enableTax || taxDistValid);
+    (!enableTax || taxDistValid) &&
+    (agent !== "moltbook" || moltbookKey.trim());
 
   // Is the form in deploy/result view?
   const showDeployView = isDeploying || deployResult;
@@ -531,16 +568,16 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
         </div>
       )}
 
-      {/* Moltbook API key (optional -- auto-register if empty) */}
+      {/* Moltbook API key (required -- agent must be claimed first) */}
       {agent === "moltbook" && !showDeployView && (
         <div className="mb-3 space-y-1.5">
           <Label className="text-[10px] text-muted-foreground uppercase tracking-wider block">
-            Moltbook API Key <span className="text-muted-foreground/60">(optional -- leave empty to auto-register)</span>
+            Moltbook API Key <span className="text-destructive">*</span>
           </Label>
           <div className="flex gap-2">
             <Input
               type="password"
-              placeholder="moltbook_... (leave empty to auto-register)"
+              placeholder="moltbook_..."
               value={moltbookKey}
               onChange={(e) => setMoltbookKey(e.target.value)}
               className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground font-mono text-sm flex-1"
@@ -549,6 +586,11 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
               <Key className="h-3.5 w-3.5 text-muted-foreground" />
             </div>
           </div>
+          <p className="text-[9px] text-muted-foreground">
+            Get a key from{" "}
+            <a href="https://www.moltbook.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">moltbook.com</a>
+            {" "}-- register your agent, then claim it (verify email + tweet). Only claimed agents can post.
+          </p>
         </div>
       )}
 
@@ -660,11 +702,33 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
           {showAdvanced && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">Website</Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-[10px] text-muted-foreground">Website</Label>
+                  <button
+                    type="button"
+                    onClick={() => handleSuggestSocial("website")}
+                    disabled={isSuggestingWebsite || !name.trim()}
+                    className="flex items-center gap-0.5 text-[9px] text-muted-foreground hover:text-primary disabled:opacity-50"
+                  >
+                    {isSuggestingWebsite ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
+                    AI
+                  </button>
+                </div>
                 <Input placeholder="https://..." value={website} onChange={(e) => setWebsite(e.target.value)} className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-xs" />
               </div>
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">Twitter</Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-[10px] text-muted-foreground">Twitter</Label>
+                  <button
+                    type="button"
+                    onClick={() => handleSuggestSocial("twitter")}
+                    disabled={isSuggestingTwitter || !name.trim()}
+                    className="flex items-center gap-0.5 text-[9px] text-muted-foreground hover:text-primary disabled:opacity-50"
+                  >
+                    {isSuggestingTwitter ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
+                    AI
+                  </button>
+                </div>
                 <Input placeholder="@handle" value={twitter} onChange={(e) => setTwitter(e.target.value)} className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-xs" />
               </div>
               <div className="space-y-1">
