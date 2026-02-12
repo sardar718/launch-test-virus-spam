@@ -11,8 +11,8 @@ import { addDeployedToken } from "@/components/deployed-tokens-box";
 
 const DEFAULT_ADMIN = "0x9c6111C77CBE545B9703243F895EB593f2721C7a";
 
-type Launchpad = "4claw" | "kibu" | "clawnch" | "molaunch";
-type Agent = "moltx" | "4claw_org" | "moltbook" | "clawstr";
+type Launchpad = "4claw" | "kibu" | "clawnch" | "molaunch" | "fourclaw_fun";
+type Agent = "moltx" | "4claw_org" | "moltbook" | "clawstr" | "direct_api";
 
 interface AutoToken {
   name: string;
@@ -36,12 +36,14 @@ const LP_OPTIONS: { id: Launchpad; label: string; chains: string[] }[] = [
   { id: "kibu", label: "Kibu", chains: ["bsc", "base"] },
   { id: "clawnch", label: "Clawnch", chains: ["base"] },
   { id: "molaunch", label: "Molaunch", chains: ["solana"] },
+  { id: "fourclaw_fun", label: "FourClaw.Fun", chains: ["bsc", "solana"] },
 ];
 
 const AGENT_OPTIONS: { id: Agent; label: string }[] = [
   { id: "4claw_org", label: "4claw.org" },
   { id: "moltx", label: "Moltx" },
   { id: "clawstr", label: "Clawstr" },
+  { id: "direct_api", label: "Direct API" },
 ];
 
 export function AutoLaunchPanel() {
@@ -93,15 +95,17 @@ export function AutoLaunchPanel() {
   const deployToken = async (token: AutoToken): Promise<boolean> => {
     const desc = token.description || (await generateDesc(token.name, token.symbol));
 
+    // Auto-select direct_api agent for FourClaw.Fun
+    const effectiveAgent = launchpad === "fourclaw_fun" ? "direct_api" : agent;
+
     const body = {
       launchpad,
-      agent,
+      agent: effectiveAgent,
       token: {
         name: token.name,
         symbol: token.symbol.toUpperCase(),
         wallet: activeWallet,
         description: desc,
-        // Pass the actual token image (each token has its own from the API)
         image: token.imageUrl || "",
         website: token.website || "",
         chain,

@@ -30,8 +30,8 @@ import { addDeployedToken } from "@/components/deployed-tokens-box";
 // ─── Platform definitions ─────────────────────────────────────
 const DEFAULT_ADMIN = "0x9c6111C77CBE545B9703243F895EB593f2721C7a";
 
-type LaunchpadId = "4claw" | "kibu" | "clawnch" | "molaunch";
-type AgentId = "moltx" | "moltbook" | "4claw_org" | "clawstr";
+type LaunchpadId = "4claw" | "kibu" | "clawnch" | "molaunch" | "fourclaw_fun";
+type AgentId = "moltx" | "moltbook" | "4claw_org" | "clawstr" | "direct_api";
 
 interface LaunchpadInfo {
   label: string;
@@ -98,6 +98,17 @@ const LAUNCHPADS: Record<LaunchpadId, LaunchpadInfo> = {
     docUrl: "https://bags.fourclaw.fun/skill.md",
     color: "text-[#9945FF]",
   },
+  fourclaw_fun: {
+    label: "FourClaw.Fun",
+    chain: "bsc",
+    chains: ["bsc", "solana"],
+    fee: "Free (20% platform)",
+    rateLimit: "10/hour",
+    agents: ["direct_api"],
+    supportsTax: true,
+    docUrl: "https://fourclaw.fun/api-skill.md",
+    color: "text-[#F59E0B]",
+  },
 };
 
 const AGENTS: Record<AgentId, AgentInfo> = {
@@ -126,6 +137,13 @@ const AGENTS: Record<AgentId, AgentInfo> = {
     label: "Clawstr",
     note: "Nostr relays",
     autoRegister: true,
+    needsKey: false,
+    keyPlaceholder: "",
+  },
+  direct_api: {
+    label: "Direct API",
+    note: "No agent needed",
+    autoRegister: false,
     needsKey: false,
     keyPlaceholder: "",
   },
@@ -259,7 +277,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
     const available = LAUNCHPADS[id].agents;
     if (!available.includes(agent)) setAgent(available[0]);
     setTokenChain(LAUNCHPADS[id].chain);
-    if (id !== "4claw") setEnableTax(false);
+    if (id !== "4claw" && id !== "fourclaw_fun") setEnableTax(false);
     setDeployResult(null);
   }
 
@@ -287,6 +305,26 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
 
   // ── Build preview ───────────────────────────────────────────
   const buildPreview = useCallback((): string => {
+    // FourClaw.Fun uses direct JSON API
+    if (launchpad === "fourclaw_fun") {
+      const platform = tokenChain === "solana" ? "BAGS" : "FLAP";
+      const obj: Record<string, unknown> = {
+        platform,
+        name,
+        symbol: symbol.toUpperCase(),
+        creatorWallet: activeWallet,
+      };
+      if (description) obj.description = description;
+      if (imageUrl) obj.imageUrl = imageUrl;
+      if (website) obj.website = website;
+      if (twitter) obj.twitter = twitter;
+      if (telegram) obj.telegram = telegram;
+      if (platform === "FLAP" && enableTax) {
+        obj.taxRate = tax * 100;
+        obj.vaultType = "split";
+      }
+      return `POST https://fourclaw.fun/api/launch\n\n${JSON.stringify(obj, null, 2)}`;
+    }
     const cmd = launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : launchpad === "molaunch" ? "!molaunch" : "!clawnch";
     let post = `${cmd}\nname: ${name}\nsymbol: ${symbol.toUpperCase()}\nwallet: ${activeWallet}`;
     if (description) post += `\ndescription: ${description}`;
@@ -314,18 +352,24 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
       setDeployLog([...logMsgs]);
     };
 
-    if (agentInfo.autoRegister) {
-      pushLog(`Registering "${name}" agent on ${agentInfo.label}...`);
-      if (agent === "moltx" || agent === "clawstr") {
-        pushLog("Generating EVM wallet...");
-        pushLog("Linking wallet via EIP-712...");
-      }
-    }
+  if (launchpad === "fourclaw_fun") {
+  pushLog(`Launching on FourClaw.Fun (${tokenChain === "solana" ? "BAGS" : "FLAP"})...`);
+  pushLog("Calling direct API...");
+  } else if (agentInfo.autoRegister) {
+  pushLog(`Registering "${name}" agent on ${agentInfo.label}...`);
+  if (agent === "moltx" || agent === "clawstr") {
+  pushLog("Generating EVM wallet...");
+  pushLog("Linking wallet via EIP-712...");
+  pushLog("Engaging with Moltx feed...");
+  }
+  }
+  if (launchpad !== "fourclaw_fun") {
     if (agent === "moltbook") {
       pushLog(`Posting to Moltbook...`);
     } else {
-      pushLog(`Posting via ${agentInfo.label} (Moltx network)...`);
+      pushLog(`Posting via ${agentInfo.label}...`);
     }
+  }
 
     try {
       const res = await fetch("/api/deploy-token", {
@@ -347,6 +391,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
             telegram,
             chain: tokenChain,
             ...(launchpad === "4claw" && enableTax ? { tax, funds, burn, holders, lp } : {}),
+            ...(launchpad === "fourclaw_fun" && enableTax ? { tax } : {}),
           },
         }),
       });
@@ -402,7 +447,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
   const canDeploy =
     name.trim() &&
     symbol.trim() &&
-    (!enableTax || taxDistValid) &&
+    (!enableTax || launchpad === "fourclaw_fun" || taxDistValid) &&
     (agent !== "moltbook" || moltbookKey.trim());
 
   // Is the form in deploy/result view?
@@ -426,7 +471,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
         <Label className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 block">
           1. Launchpad
         </Label>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
           {(Object.entries(LAUNCHPADS) as [LaunchpadId, LaunchpadInfo][]).map(([id, info]) => (
             <button
               key={id}
@@ -743,8 +788,8 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
             <div className="rounded-lg border border-border bg-background p-3 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-medium text-card-foreground">V5 Tax Config</p>
-                  <p className="text-[9px] text-muted-foreground">Buy/sell tax: 1-5%</p>
+                  <p className="text-xs font-medium text-card-foreground">{launchpad === "fourclaw_fun" ? "FLAP Tax Config" : "V5 Tax Config"}</p>
+                  <p className="text-[9px] text-muted-foreground">{launchpad === "fourclaw_fun" ? "Tax in BPS (1%=100, max 10%)" : "Buy/sell tax: 1-5%"}</p>
                 </div>
                 <Switch checked={enableTax} onCheckedChange={setEnableTax} />
               </div>
@@ -801,9 +846,11 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
           {/* Info banner */}
           <div className="rounded-md bg-accent/10 border border-accent/20 px-3 py-2">
             <p className="text-[9px] text-accent leading-relaxed">
-              {agentInfo.autoRegister
-                ? `Click Deploy to auto-register a "${name || "your token"}" agent on ${agentInfo.label}${(agent === "moltx" || agent === "clawstr") ? " (with EVM wallet)" : ""}, post the ${launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : launchpad === "molaunch" ? "!molaunch" : "!clawnch"} command via ${agentInfo.label}, and trigger ${lpInfo.label} deployment.`
-                : `Click Deploy to post the ${launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : launchpad === "molaunch" ? "!molaunch" : "!clawnch"} command to ${agentInfo.label} using your API key and trigger ${lpInfo.label} deployment.`
+              {launchpad === "fourclaw_fun"
+                ? `Click Deploy to launch "${name || "your token"}" directly via FourClaw.Fun API on ${tokenChain === "solana" ? "Solana (BAGS)" : "BNB Chain (FLAP)"}. No agent needed.`
+                : agentInfo.autoRegister
+                  ? `Click Deploy to auto-register a "${name || "your token"}" agent on ${agentInfo.label}${(agent === "moltx" || agent === "clawstr") ? " (with EVM wallet)" : ""}, post the launch command via ${agentInfo.label}, and trigger ${lpInfo.label} deployment.`
+                  : `Click Deploy to post the launch command to ${agentInfo.label} using your API key and trigger ${lpInfo.label} deployment.`
               }
               {" "}Cost: {lpInfo.fee}. Rate: {lpInfo.rateLimit}.
             </p>
@@ -816,7 +863,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
             className="w-full bg-primary text-primary-foreground hover:bg-primary/90 font-semibold h-11 text-sm"
           >
             <Send className="mr-2 h-4 w-4" />
-            Deploy Token via {agentInfo.label}
+            {launchpad === "fourclaw_fun" ? `Deploy on ${tokenChain === "solana" ? "BAGS" : "FLAP"}` : `Deploy Token via ${agentInfo.label}`}
           </Button>
         </div>
       )}

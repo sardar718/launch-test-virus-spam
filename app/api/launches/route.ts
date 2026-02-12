@@ -4,6 +4,8 @@ const SOURCES: Record<string, { url: string; network: string }> = {
   "kibu-bsc": { url: "https://kibu.bot/api/launches?limit=12&chain=bsc", network: "bsc" },
   "kibu-base": { url: "https://kibu.bot/api/launches?limit=12&chain=base", network: "base" },
   clawnch: { url: "https://clawn.ch/api/launches?limit=12", network: "base" },
+  "4claw": { url: "https://api.4claw.fun/api/launches?limit=12", network: "bsc" },
+  "fourclaw-fun": { url: "https://fourclaw.fun/api/launches?limit=12", network: "bsc" },
 };
 
 interface LaunchRaw {
@@ -72,7 +74,8 @@ export async function GET(request: Request) {
     });
 
     if (!res.ok) {
-      throw new Error(`${source} API returned ${res.status}`);
+      console.error(`${source} launches API error: ${res.status}`);
+      return NextResponse.json({ launches: [], source, error: `${source} API returned ${res.status}` });
     }
 
     const data = await res.json();

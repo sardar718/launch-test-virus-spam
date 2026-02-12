@@ -31,6 +31,8 @@ const SOURCES = [
   { id: "kibu-bsc", label: "Kibu BSC", color: "text-accent", explorer: "https://bscscan.com/token/" },
   { id: "kibu-base", label: "Kibu Base", color: "text-[#0052FF]", explorer: "https://basescan.org/token/" },
   { id: "clawnch", label: "Clawnch", color: "text-[#0052FF]", explorer: "https://basescan.org/token/" },
+  { id: "4claw", label: "4claw", color: "text-primary", explorer: "https://bscscan.com/token/" },
+  { id: "fourclaw-fun", label: "FourClaw.Fun", color: "text-[#F59E0B]", explorer: "https://bscscan.com/token/" },
 ] as const;
 
 function truncateAddress(addr: string | undefined): string {
@@ -61,6 +63,12 @@ export function RecentLaunches() {
     ? data
     : data?.launches || data?.data || [];
 
+  // Calculate total volume across all visible launches
+  const totalVolume = launches.slice(0, 10).reduce((sum, launch) => {
+    const vol = Number.parseFloat(launch.volume24h || "0");
+    return sum + (Number.isNaN(vol) ? 0 : vol);
+  }, 0);
+
   return (
     <div className="rounded-xl border border-border bg-card p-6">
       <div className="mb-4 flex flex-col gap-3">
@@ -73,9 +81,17 @@ export function RecentLaunches() {
               <h2 className="text-lg font-semibold text-card-foreground">
                 Recent Launches
               </h2>
-              <p className="text-xs text-muted-foreground">
-                Latest token deployments
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-muted-foreground">
+                  Latest token deployments
+                </p>
+                {totalVolume > 0 && (
+                  <span className="flex items-center gap-1 rounded-full bg-chart-3/10 px-2 py-0.5 text-[10px] font-mono font-semibold text-chart-3">
+                    <BarChart3 className="h-2.5 w-2.5" />
+                    {formatVolume(totalVolume.toString())} total vol
+                  </span>
+                )}
+              </div>
             </div>
           </div>
           <Button
@@ -92,13 +108,13 @@ export function RecentLaunches() {
         </div>
 
         {/* Source tabs */}
-        <div className="flex rounded-lg border border-border bg-secondary p-0.5">
+        <div className="flex overflow-x-auto rounded-lg border border-border bg-secondary p-0.5">
           {SOURCES.map((s) => (
             <button
               key={s.id}
               type="button"
               onClick={() => setSource(s.id)}
-              className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-medium transition-colors ${
+              className={`shrink-0 rounded-md px-2 py-1.5 text-[10px] font-medium transition-colors ${
                 source === s.id
                   ? "bg-card text-card-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
@@ -175,21 +191,21 @@ export function RecentLaunches() {
                         ${launch.symbol}
                       </span>
                     )}
-                    {launch.volume24h && launch.volume24h !== "--" && (
-                      <span className="flex items-center gap-0.5 rounded bg-chart-3/10 px-1.5 py-0.5 text-[10px] font-mono text-chart-3">
-                        <BarChart3 className="h-2.5 w-2.5" />
-                        {formatVolume(launch.volume24h)}
-                      </span>
-                    )}
                     {launch.tax != null && launch.tax > 0 && (
                       <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-mono text-primary">
                         {launch.tax}% tax
                       </span>
                     )}
                   </div>
-                  <p className="font-mono text-xs text-muted-foreground">
-                    {truncateAddress(addr)}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-mono text-xs text-muted-foreground">
+                      {truncateAddress(addr)}
+                    </p>
+                    <span className="flex items-center gap-0.5 rounded bg-chart-3/10 px-1.5 py-0.5 text-[10px] font-mono text-chart-3">
+                      <BarChart3 className="h-2.5 w-2.5" />
+                      {formatVolume(launch.volume24h)}
+                    </span>
+                  </div>
                 </div>
                 {addr && (
                   <a

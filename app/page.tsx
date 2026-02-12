@@ -76,17 +76,18 @@ export default function Page() {
                 4C
               </div>
               <span className="text-xs text-muted-foreground">
-                Multi-Platform Launchpad v3.0
+                Multi-Platform Launchpad v3.1
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
-              <span>4claw (BSC) | Kibu (BSC/Base) | Clawnch (Base) | Molaunch (SOL)</span>
+              <span>4claw (BSC) | Kibu (BSC/Base) | Clawnch (Base) | Molaunch (SOL) | FourClaw.Fun (BSC/SOL)</span>
               <span className="hidden sm:inline">|</span>
               {[
                 { label: "4claw Docs", url: "https://4claw.fun" },
                 { label: "Kibu Docs", url: "https://kibu.bot" },
                 { label: "Clawnch Docs", url: "https://clawn.ch" },
-                { label: "Molaunch Docs", url: "https://fourclaw.fun" },
+                { label: "Molaunch Docs", url: "https://bags.fourclaw.fun" },
+                { label: "FourClaw.Fun", url: "https://fourclaw.fun" },
               ].map((link) => (
                 <a
                   key={link.label}

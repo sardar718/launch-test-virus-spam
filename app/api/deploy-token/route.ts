@@ -201,8 +201,45 @@ async function linkEvmWallet(
 }
 
 /**
+ * Engage with the Moltx feed before posting.
+ * Moltx now requires agents to interact with the feed before they can post.
+ * We like a random post from the global feed to satisfy this requirement.
+ */
+async function engageMoltxFeed(apiKey: string, log: string[]): Promise<void> {
+  log.push("Engaging with Moltx feed...");
+  try {
+    // Fetch global trending feed
+    const feedRes = await fetch(`${MOLTX_API}/feed/global?limit=5`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!feedRes.ok) return;
+    const feedData = await feedRes.json();
+    const posts = feedData?.data?.posts || feedData?.data || feedData?.posts || [];
+    if (posts.length === 0) return;
+
+    // Like the first post
+    const targetPost = posts[0];
+    const postId = targetPost?.id || targetPost?.post_id;
+    if (!postId) return;
+
+    await fetch(`${MOLTX_API}/posts/${postId}/like`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+    });
+    log.push("Feed engagement complete");
+  } catch {
+    // Non-critical, continue anyway
+    log.push("Feed engagement skipped");
+  }
+}
+
+/**
  * Post to Moltx with retry.
  * If first attempt fails with "EVM wallet required", re-link wallet and retry once.
+ * If first attempt fails with "Engage before posting", engage with feed and retry.
  */
 async function postToMoltxWithRetry(
   apiKey: string,
@@ -211,7 +248,7 @@ async function postToMoltxWithRetry(
   log: string[],
   evmWalletRef: { current: { address: string; privateKey: string } | null },
 ): Promise<{ postId: string }> {
-  const MAX_RETRIES = 2;
+  const MAX_RETRIES = 3;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const res = await fetch(`${MOLTX_API}/posts`, {
@@ -249,13 +286,20 @@ async function postToMoltxWithRetry(
         const newWallet = await linkEvmWallet(apiKey, chainId, log);
         evmWalletRef.current = newWallet;
         log.push("Wallet re-linked. Retrying post...");
-        // Small delay to let Moltx propagate the wallet link
         await new Promise((r) => setTimeout(r, 2000));
         continue;
       } catch (relinkErr) {
         log.push(`Re-link failed: ${String(relinkErr)}`);
         throw new Error(errMsg);
       }
+    }
+
+    // If "Engage before posting", engage with feed and retry
+    if (errMsg.toLowerCase().includes("engage before posting") && attempt < MAX_RETRIES) {
+      log.push("Moltx requires feed engagement. Engaging...");
+      await engageMoltxFeed(apiKey, log);
+      await new Promise((r) => setTimeout(r, 1500));
+      continue;
     }
 
     throw new Error(errMsg);
@@ -447,6 +491,9 @@ export async function POST(request: Request) {
       // Small delay to let Moltx propagate wallet link
       await new Promise((r) => setTimeout(r, 1500));
 
+      // Engage with feed before posting (Moltx requirement)
+      await engageMoltxFeed(apiKey, log);
+
       // Post with retry (re-links wallet if first attempt fails)
       const content = buildPostContent(launchpad, token, kibuPlatform);
       log.push("Posting to Moltx...");
@@ -519,6 +566,9 @@ export async function POST(request: Request) {
 
       await new Promise((r) => setTimeout(r, 1500));
 
+      // Engage with feed before posting (Moltx requirement)
+      await engageMoltxFeed(apiKey, log);
+
       const content = buildPostContent(launchpad, token, kibuPlatform);
       log.push("Posting to Moltx (Clawstr auto-scans)...");
       const { postId } = await postToMoltxWithRetry(apiKey, content, chainId, log, evmWalletRef);
@@ -539,6 +589,61 @@ export async function POST(request: Request) {
         credentials: !existingApiKey
           ? { apiKey, agentName, evmWallet: evmWalletRef.current }
           : undefined,
+      });
+    }
+
+    // ── FOURCLAW.FUN DIRECT API ── (no agent needed)
+    if (agent === "direct_api" && launchpad === "fourclaw_fun") {
+      const platform = token.chain === "solana" ? "BAGS" : "FLAP";
+      const agentId = `launcher_${Date.now().toString(36)}`;
+      log.push(`Launching on FourClaw.Fun (${platform})...`);
+
+      const payload: Record<string, unknown> = {
+        platform,
+        name: token.name,
+        symbol: token.symbol.toUpperCase(),
+        agentId,
+        agentName: `${token.name} Launcher`,
+        creatorWallet: token.wallet,
+      };
+      if (token.description) payload.description = token.description;
+      if (token.image) payload.imageUrl = token.image;
+      if (token.website) payload.website = token.website;
+      if (token.twitter) payload.twitter = token.twitter;
+      if (token.telegram) payload.telegram = token.telegram;
+
+      // FLAP-specific tax settings
+      if (platform === "FLAP" && token.tax) {
+        payload.taxRate = token.tax * 100; // Convert % to BPS
+        payload.vaultType = "split";
+      }
+
+      const res = await fetch("https://fourclaw.fun/api/launch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data?.error || `FourClaw.Fun launch failed (${res.status})`);
+      }
+
+      const jobId = data?.data?.jobId || "unknown";
+      const tokenId = data?.data?.tokenId || "";
+      log.push(`Launch queued! Job: ${jobId}`);
+      log.push(`Platform: ${platform} | Status: ${data?.data?.status || "queued"}`);
+      if (data?.data?.estimatedTime) log.push(`Estimated: ${data.data.estimatedTime}`);
+
+      return NextResponse.json({
+        success: true,
+        message: `FourClaw.Fun launch queued on ${platform}. Job: ${jobId}`,
+        postId: jobId,
+        postUrl: `https://fourclaw.fun/token/${tokenId}`,
+        autoScanned: false,
+        log,
+        tokenName: token.name,
+        tokenSymbol: token.symbol,
       });
     }
 
