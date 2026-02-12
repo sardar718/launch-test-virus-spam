@@ -55,15 +55,18 @@ export async function GET(request: Request) {
     }
 
     // Build a map of included token data (GeckoTerminal includes base token info)
-    const includedTokens: Record<string, { name: string; symbol: string; image_url: string | null; websites: string[]; description: string | null }> = {};
+    const includedTokens: Record<string, { name: string; symbol: string; image_url: string | null; websites: string[]; twitter: string | null; description: string | null }> = {};
     if (data.included) {
       for (const inc of data.included) {
         if (inc.type === "token") {
+          // GeckoTerminal may have twitter_handle in attributes
+          const tw = inc.attributes?.twitter_handle || null;
           includedTokens[inc.id] = {
             name: inc.attributes?.name || "",
             symbol: inc.attributes?.symbol || "",
             image_url: inc.attributes?.image_url || null,
             websites: inc.attributes?.websites || [],
+            twitter: tw ? (tw.startsWith("@") ? tw : `@${tw}`) : null,
             description: inc.attributes?.description || null,
           };
         }
@@ -83,6 +86,7 @@ export async function GET(request: Request) {
         symbol: tokenInfo?.symbol || (nameParts[0] || "").split(" ").pop() || nameParts[0],
         imageUrl: tokenInfo?.image_url || null,
         website: tokenInfo?.websites?.[0] || null,
+        twitter: tokenInfo?.twitter || null,
         tokenDescription: tokenInfo?.description || null,
         priceUsd: a.base_token_price_usd,
         priceChange1h: a.price_change_percentage?.h1,

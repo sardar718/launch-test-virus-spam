@@ -9,7 +9,6 @@ import {
   Flame,
   Clock,
   ExternalLink,
-  Zap,
   Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -46,7 +45,6 @@ const CHAINS = [
 
 const SOURCES = [
   { id: "gecko", label: "GeckoTerminal", icon: Flame },
-  { id: "dexscreener", label: "DexScreener", icon: Zap },
   { id: "coingecko", label: "CoinGecko", icon: Star },
 ] as const;
 
@@ -55,11 +53,6 @@ const CHAIN_EXPLORERS: Record<string, Record<string, string>> = {
     bsc: "https://www.geckoterminal.com/bsc/pools/",
     base: "https://www.geckoterminal.com/base/pools/",
     solana: "https://www.geckoterminal.com/solana/pools/",
-  },
-  dexscreener: {
-    bsc: "https://dexscreener.com/bsc/",
-    base: "https://dexscreener.com/base/",
-    solana: "https://dexscreener.com/solana/",
   },
   coingecko: {
     bsc: "https://www.coingecko.com/en/coins/",
@@ -89,8 +82,7 @@ function formatAge(dateStr: string | null): string {
 }
 
 function getApiUrl(source: string, chain: string, feedType: string): string {
-  if (source === "dexscreener") return `/api/dexscreener-tokens?chain=${chain}`;
-  if (source === "coingecko") return `/api/coingecko-tokens?chain=${chain}`;
+  if (source === "coingecko") return `/api/coingecko-tokens?chain=${chain}&type=${feedType}`;
   return `/api/trending-tokens?chain=${chain}&type=${feedType}`;
 }
 
@@ -201,8 +193,8 @@ export function TrendingMemecoins({ onSelectToken }: Props) {
             ))}
           </div>
 
-          {/* Hot/New toggle -- only for GeckoTerminal */}
-          {source === "gecko" && (
+          {/* Hot/New toggle -- for GeckoTerminal and CoinGecko */}
+          {(source === "gecko" || source === "coingecko") && (
             <div className="flex rounded-lg border border-border bg-secondary p-0.5">
               <button
                 type="button"

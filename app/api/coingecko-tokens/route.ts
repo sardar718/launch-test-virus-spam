@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-// CoinGecko free API - trending tokens
+// CoinGecko free API
 const CG_API = "https://api.coingecko.com/api/v3";
 
 const CHAIN_PLATFORM: Record<string, string> = {
@@ -12,10 +12,17 @@ const CHAIN_PLATFORM: Record<string, string> = {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const chain = searchParams.get("chain") || "bsc";
+  const feedType = searchParams.get("type") || "trending";
 
   try {
-    // CoinGecko trending search
-    const res = await fetch(`${CG_API}/search/trending`, {
+    // For "trending" (hot) use the trending endpoint
+    // For "new" use recently added coins endpoint
+    const apiUrl =
+      feedType === "new"
+        ? `${CG_API}/coins/list/new`
+        : `${CG_API}/search/trending`;
+
+    const res = await fetch(apiUrl, {
       headers: { Accept: "application/json" },
       next: { revalidate: 300 },
     });
@@ -24,14 +31,43 @@ export async function GET(request: Request) {
     const data = await res.json();
 
     const platform = CHAIN_PLATFORM[chain];
-    const coins = (data?.coins || []).slice(0, 20);
 
+    if (feedType === "new") {
+      // /coins/list/new returns array of {id, symbol, name, activated_at}
+      const newCoins = Array.isArray(data) ? data.slice(0, 20) : [];
+      const tokens = newCoins.map(
+        (coin: { id: string; symbol: string; name: string; activated_at?: number }) => ({
+          id: `cg_${coin.id}`,
+          name: coin.name,
+          symbol: coin.symbol?.toUpperCase() || "???",
+          quote: "",
+          priceUsd: null,
+          priceChange1h: null,
+          priceChange24h: null,
+          volume24h: null,
+          liquidity: null,
+          createdAt: coin.activated_at
+            ? new Date(coin.activated_at * 1000).toISOString()
+            : null,
+          fdvUsd: null,
+          chain,
+          poolAddress: "",
+          dex: "coingecko",
+          imageUrl: null,
+          website: null,
+          tokenDescription: null,
+        }),
+      );
+      return NextResponse.json({ tokens, chain, source: "coingecko" });
+    }
+
+    // Trending endpoint
+    const coins = (data?.coins || []).slice(0, 20);
     const tokens = coins
       .map(
         (c: {
           item: {
             id: string;
-            coin_id: number;
             name: string;
             symbol: string;
             thumb: string;
@@ -47,11 +83,10 @@ export async function GET(request: Request) {
           };
         }) => {
           const item = c.item;
-          // Check if token exists on selected chain
           const hasChain =
             !platform ||
             (item.platforms && item.platforms[platform]) ||
-            chain === "bsc"; // default show on BSC if no filter
+            chain === "bsc";
 
           if (!hasChain) return null;
 

@@ -25,7 +25,7 @@ interface TokenData {
 }
 
 // ── Build launch command content ────────────────────────────────
-function buildPostContent(launchpad: string, token: TokenData): string {
+function buildPostContent(launchpad: string, token: TokenData, kibuPlatform?: string): string {
   const cmd =
     launchpad === "4claw"
       ? "!4clawd"
@@ -43,13 +43,16 @@ function buildPostContent(launchpad: string, token: TokenData): string {
     post += `\ntelegram: ${token.telegram}`;
   if ((launchpad === "kibu" || launchpad === "clawnch") && token.chain)
     post += `\nchain: ${token.chain}`;
+  // Four.meme platform for Kibu
+  if (launchpad === "kibu" && kibuPlatform === "fourmeme")
+    post += `\nplatform: fourmeme`;
   if (launchpad === "4claw" && token.tax) {
     post += `\n\ntax: ${token.tax}\nfunds: ${token.funds || 97}\nburn: ${token.burn || 1}\nholders: ${token.holders || 1}\nlp: ${token.lp || 1}`;
   }
   return post;
 }
 
-function buildMoltbookContent(launchpad: string, token: TokenData): string {
+function buildMoltbookContent(launchpad: string, token: TokenData, kibuPlatform?: string): string {
   const cmd =
     launchpad === "4claw"
       ? "!4clawd"
@@ -69,6 +72,9 @@ function buildMoltbookContent(launchpad: string, token: TokenData): string {
   if (token.twitter) jsonObj.twitter = token.twitter;
   if ((launchpad === "kibu" || launchpad === "clawnch") && token.chain)
     jsonObj.chain = token.chain;
+  // Four.meme platform for Kibu
+  if (launchpad === "kibu" && kibuPlatform === "fourmeme")
+    jsonObj.platform = "fourmeme";
   return `${cmd}\n\`\`\`json\n${JSON.stringify(jsonObj, null, 2)}\n\`\`\``;
 }
 
@@ -403,11 +409,13 @@ export async function POST(request: Request) {
       launchpad,
       agent,
       existingApiKey,
+      kibuPlatform,
       token,
     }: {
       launchpad: string;
       agent: string;
       existingApiKey?: string;
+      kibuPlatform?: string;
       token: TokenData;
     } = body;
 
@@ -440,7 +448,7 @@ export async function POST(request: Request) {
       await new Promise((r) => setTimeout(r, 1500));
 
       // Post with retry (re-links wallet if first attempt fails)
-      const content = buildPostContent(launchpad, token);
+      const content = buildPostContent(launchpad, token, kibuPlatform);
       log.push("Posting to Moltx...");
       const { postId } = await postToMoltxWithRetry(apiKey, content, chainId, log, evmWalletRef);
       log.push(`Posted to Moltx! ID: ${postId}`);
@@ -473,7 +481,7 @@ export async function POST(request: Request) {
         log.push(`Agent "${reg.agentName}" registered on 4claw.org`);
       }
 
-      const content = buildPostContent(launchpad, token);
+      const content = buildPostContent(launchpad, token, kibuPlatform);
       log.push("Posting to 4claw.org /crypto/ board...");
       const { postId } = await postTo4clawOrg(apiKey, content, token.name);
       log.push(`Posted to 4claw.org! Thread ID: ${postId}`);
@@ -511,7 +519,7 @@ export async function POST(request: Request) {
 
       await new Promise((r) => setTimeout(r, 1500));
 
-      const content = buildPostContent(launchpad, token);
+      const content = buildPostContent(launchpad, token, kibuPlatform);
       log.push("Posting to Moltx (Clawstr auto-scans)...");
       const { postId } = await postToMoltxWithRetry(apiKey, content, chainId, log, evmWalletRef);
       log.push(`Posted! ID: ${postId}`);
@@ -537,13 +545,28 @@ export async function POST(request: Request) {
     // ── MOLTBOOK AGENT ──
     if (agent === "moltbook") {
       if (!apiKey) {
-        return NextResponse.json(
-          { error: "Moltbook requires an API key. Get one from moltbook.com." },
-          { status: 400 },
-        );
+        // Auto-register on Moltbook
+        log.push(`Registering "${token.name}" agent on Moltbook...`);
+        const mbAgentName = `${token.name.toLowerCase().replace(/[^a-z0-9]/g, "")}_${Date.now().toString(36)}`;
+        const regRes = await fetch(`${MOLTBOOK_API}/agents/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: mbAgentName,
+            description: `Token launcher for $${token.symbol} (${token.name})`,
+          }),
+        });
+        const regData = await regRes.json();
+        if (!regRes.ok) {
+          throw new Error(regData?.error || regData?.message || `Moltbook register failed (${regRes.status})`);
+        }
+        apiKey = regData?.agent?.api_key || regData?.api_key || "";
+        agentName = regData?.agent?.name || mbAgentName;
+        if (!apiKey) throw new Error("Moltbook registered but no API key returned");
+        log.push(`Agent "${agentName}" registered on Moltbook`);
       }
 
-      const content = buildMoltbookContent(launchpad, token);
+      const content = buildMoltbookContent(launchpad, token, kibuPlatform);
       const submolt =
         launchpad === "kibu"
           ? "kibu"
@@ -588,6 +611,9 @@ export async function POST(request: Request) {
         log,
         tokenName: token.name,
         tokenSymbol: token.symbol,
+        credentials: !existingApiKey && agentName
+          ? { apiKey, agentName }
+          : undefined,
       });
     }
 

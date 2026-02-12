@@ -15,6 +15,7 @@ export interface TokenPrefill {
   symbol: string;
   imageUrl?: string;
   website?: string;
+  twitter?: string;
   description?: string;
 }
 
@@ -30,6 +31,7 @@ export default function Page() {
       symbol: cleanSymbol,
       imageUrl: token.imageUrl || undefined,
       website: token.website || undefined,
+      twitter: token.twitter || undefined,
       description: token.tokenDescription || undefined,
     });
 

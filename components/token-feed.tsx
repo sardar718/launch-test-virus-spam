@@ -256,7 +256,7 @@ export function TokenFeed() {
         </div>
       ) : (
         <div className="space-y-2">
-          {pools.slice(0, 20).map((pool) => (
+          {pools.slice(0, 10).map((pool) => (
             <TokenRow key={pool.id} pool={pool} />
           ))}
         </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import useSWR from "swr";
+import { useState } from "react";
 import { ExternalLink, Rocket, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -10,13 +11,25 @@ interface LaunchToken {
   name?: string;
   symbol?: string;
   contractAddress?: string;
+  contract_address?: string;
+  address?: string;
+  id?: string;
   wallet?: string;
   description?: string;
   image?: string;
   createdAt?: string;
+  created_at?: string;
   status?: string;
   tax?: number;
+  chain?: string;
+  source?: string;
 }
+
+const SOURCES = [
+  { id: "kibu-bsc", label: "Kibu BSC", color: "text-accent", explorer: "https://bscscan.com/token/" },
+  { id: "kibu-base", label: "Kibu Base", color: "text-[#0052FF]", explorer: "https://basescan.org/token/" },
+  { id: "clawnch", label: "Clawnch", color: "text-[#0052FF]", explorer: "https://basescan.org/token/" },
+] as const;
 
 function truncateAddress(addr: string | undefined): string {
   if (!addr) return "--";
@@ -24,13 +37,13 @@ function truncateAddress(addr: string | undefined): string {
 }
 
 export function RecentLaunches() {
+  const [source, setSource] = useState<string>("kibu-bsc");
+  const currentSource = SOURCES.find((s) => s.id === source) || SOURCES[0];
+
   const { data, error, isLoading, mutate } = useSWR(
-    "/api/launches",
+    `/api/launches?source=${source}`,
     fetcher,
-    {
-      refreshInterval: 30000,
-      revalidateOnFocus: false,
-    }
+    { refreshInterval: 30000, revalidateOnFocus: false },
   );
 
   const launches: LaunchToken[] = Array.isArray(data)
@@ -39,37 +52,57 @@ export function RecentLaunches() {
 
   return (
     <div className="rounded-xl border border-border bg-card p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
-            <Rocket className="h-4 w-4 text-primary" />
+      <div className="mb-4 flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+              <Rocket className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-card-foreground">
+                Recent Launches
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Latest token deployments
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-lg font-semibold text-card-foreground">
-              4claw Launches
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              Recent deployments via 4claw
-            </p>
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => mutate()}
+            disabled={isLoading}
+            className="border-border bg-transparent text-muted-foreground hover:text-foreground"
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`}
+            />
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => mutate()}
-          disabled={isLoading}
-          className="border-border bg-transparent text-muted-foreground hover:text-foreground"
-        >
-          <RefreshCw
-            className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`}
-          />
-        </Button>
+
+        {/* Source tabs */}
+        <div className="flex rounded-lg border border-border bg-secondary p-0.5">
+          {SOURCES.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => setSource(s.id)}
+              className={`flex-1 rounded-md px-2 py-1.5 text-[10px] font-medium transition-colors ${
+                source === s.id
+                  ? "bg-card text-card-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {error ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-destructive/20 bg-destructive/5 py-8">
           <p className="text-sm text-destructive">
-            Unable to load 4claw launches.
+            Unable to load launches.
           </p>
           <Button
             variant="outline"
@@ -94,61 +127,67 @@ export function RecentLaunches() {
           <p className="text-sm text-muted-foreground">
             No launches found yet.
           </p>
-          <p className="text-xs text-muted-foreground mt-1">
+          <p className="mt-1 text-xs text-muted-foreground">
             Use the launch form to deploy your first token.
           </p>
         </div>
       ) : (
         <div className="space-y-2">
-          {launches.slice(0, 10).map((launch, index) => (
-            <div
-              key={launch.contractAddress || `launch-${index}`}
-              className="flex items-center gap-3 rounded-lg border border-border bg-background px-4 py-3 transition-colors hover:border-primary/30"
-            >
-              {launch.image ? (
-                <img
-                  src={launch.image || "/placeholder.svg"}
-                  alt={launch.name || "Token"}
-                  className="h-8 w-8 rounded-full bg-secondary object-cover"
-                />
-              ) : (
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-xs font-mono font-bold text-muted-foreground">
-                  {(launch.symbol || "?")[0]}
-                </div>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-card-foreground truncate">
-                    {launch.name || "Unknown Token"}
-                  </span>
-                  {launch.symbol && (
-                    <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-mono text-accent">
-                      ${launch.symbol}
+          {launches.slice(0, 10).map((launch, index) => {
+            const addr = launch.contractAddress || launch.contract_address || launch.address || launch.id;
+            return (
+              <div
+                key={addr || `launch-${index}`}
+                className="flex items-center gap-3 rounded-lg border border-border bg-background px-4 py-3 transition-colors hover:border-primary/30"
+              >
+                {launch.image ? (
+                  <img
+                    src={launch.image || "/placeholder.svg"}
+                    alt={launch.name || "Token"}
+                    className="h-8 w-8 rounded-full bg-secondary object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = "none";
+                    }}
+                  />
+                ) : (
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-xs font-mono font-bold text-muted-foreground">
+                    {(launch.symbol || "?")[0]}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-semibold text-card-foreground">
+                      {launch.name || "Unknown Token"}
                     </span>
-                  )}
-                  {launch.tax != null && launch.tax > 0 && (
-                    <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-mono text-primary">
-                      {launch.tax}% tax
-                    </span>
-                  )}
+                    {launch.symbol && (
+                      <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-mono text-accent">
+                        ${launch.symbol}
+                      </span>
+                    )}
+                    {launch.tax != null && launch.tax > 0 && (
+                      <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-mono text-primary">
+                        {launch.tax}% tax
+                      </span>
+                    )}
+                  </div>
+                  <p className="font-mono text-xs text-muted-foreground">
+                    {truncateAddress(addr)}
+                  </p>
                 </div>
-                <p className="text-xs text-muted-foreground font-mono">
-                  {truncateAddress(launch.contractAddress)}
-                </p>
+                {addr && (
+                  <a
+                    href={`${currentSource.explorer}${addr}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                    aria-label={`View ${launch.name || "token"} on explorer`}
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                )}
               </div>
-              {launch.contractAddress && (
-                <a
-                  href={`https://bscscan.com/token/${launch.contractAddress}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                  aria-label={`View ${launch.name || "token"} on BscScan`}
-                >
-                  <ExternalLink className="h-4 w-4" />
-                </a>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

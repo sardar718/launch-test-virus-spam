@@ -110,9 +110,9 @@ const AGENTS: Record<AgentId, AgentInfo> = {
   },
   moltbook: {
     label: "Moltbook",
-    note: "API trigger",
-    autoRegister: false,
-    needsKey: true,
+    note: "Auto/Key",
+    autoRegister: true,
+    needsKey: false,
     keyPlaceholder: "moltbook_...",
   },
   "4claw_org": {
@@ -157,6 +157,9 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
   const [launchpad, setLaunchpad] = useState<LaunchpadId>("4claw");
   const [agent, setAgent] = useState<AgentId>("moltx");
   const [tokenChain, setTokenChain] = useState("bsc");
+
+  // Kibu sub-platform: flap (flap.sh default) or fourmeme (four.meme)
+  const [kibuPlatform, setKibuPlatform] = useState<"flap" | "fourmeme">("flap");
 
   // Token form
   const [name, setName] = useState("");
@@ -207,6 +210,10 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
         setShowAdvanced(true);
       }
       if (prefill.description) setDescription(prefill.description);
+      if (prefill.twitter) {
+        setTwitter(prefill.twitter);
+        setShowAdvanced(true);
+      }
     }
   }, [prefill]);
 
@@ -252,6 +259,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
     if (twitter) post += `\ntwitter: ${twitter}`;
     if (telegram && launchpad === "4claw") post += `\ntelegram: ${telegram}`;
     if (launchpad === "kibu" || launchpad === "clawnch") post += `\nchain: ${tokenChain}`;
+    if (launchpad === "kibu" && kibuPlatform === "fourmeme") post += `\nplatform: fourmeme`;
     if (launchpad === "4claw" && enableTax && lpInfo.supportsTax)
       post += `\n\ntax: ${tax}\nfunds: ${funds}\nburn: ${burn}\nholders: ${holders}\nlp: ${lp}`;
     return post;
@@ -291,6 +299,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
           launchpad,
           agent,
           existingApiKey: agent === "moltbook" ? moltbookKey : undefined,
+          kibuPlatform: launchpad === "kibu" ? kibuPlatform : undefined,
           token: {
             name,
             symbol: symbol.toUpperCase(),
@@ -357,8 +366,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
   const canDeploy =
     name.trim() &&
     symbol.trim() &&
-    (!enableTax || taxDistValid) &&
-    (agent !== "moltbook" || moltbookKey.trim());
+    (!enableTax || taxDistValid);
 
   // Is the form in deploy/result view?
   const showDeployView = isDeploying || deployResult;
@@ -480,16 +488,59 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
         </div>
       )}
 
-      {/* Moltbook API key (only when moltbook agent selected) */}
+      {/* ── Step 3 (Kibu only): DEX Platform ── */}
+      {launchpad === "kibu" && !showDeployView && (
+        <div className="mb-3">
+          <Label className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 block">
+            3. DEX Platform
+          </Label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setKibuPlatform("flap")}
+              className={`flex-1 rounded-lg border px-3 py-2 text-left transition-all ${
+                kibuPlatform === "flap"
+                  ? "border-chart-3 bg-chart-3/5 ring-1 ring-chart-3/20"
+                  : "border-border bg-secondary hover:bg-secondary/80"
+              }`}
+            >
+              <p className={`text-xs font-semibold ${kibuPlatform === "flap" ? "text-chart-3" : "text-card-foreground"}`}>
+                Flap.sh
+              </p>
+              <p className="text-[9px] text-muted-foreground mt-0.5">
+                Default | 3% tax | BSC/Base
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setKibuPlatform("fourmeme")}
+              className={`flex-1 rounded-lg border px-3 py-2 text-left transition-all ${
+                kibuPlatform === "fourmeme"
+                  ? "border-accent bg-accent/5 ring-1 ring-accent/20"
+                  : "border-border bg-secondary hover:bg-secondary/80"
+              }`}
+            >
+              <p className={`text-xs font-semibold ${kibuPlatform === "fourmeme" ? "text-accent" : "text-card-foreground"}`}>
+                Four.meme
+              </p>
+              <p className="text-[9px] text-muted-foreground mt-0.5">
+                New | BSC | four.meme
+              </p>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Moltbook API key (optional -- auto-register if empty) */}
       {agent === "moltbook" && !showDeployView && (
         <div className="mb-3 space-y-1.5">
           <Label className="text-[10px] text-muted-foreground uppercase tracking-wider block">
-            Moltbook API Key
+            Moltbook API Key <span className="text-muted-foreground/60">(optional -- leave empty to auto-register)</span>
           </Label>
           <div className="flex gap-2">
             <Input
               type="password"
-              placeholder="moltbook_..."
+              placeholder="moltbook_... (leave empty to auto-register)"
               value={moltbookKey}
               onChange={(e) => setMoltbookKey(e.target.value)}
               className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground font-mono text-sm flex-1"
@@ -507,7 +558,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
       {!showDeployView && (
         <div className="space-y-3 border-t border-border pt-3 mt-2">
           <Label className="text-[10px] text-muted-foreground uppercase tracking-wider block">
-            3. Token Details
+            {launchpad === "kibu" ? "4" : "3"}. Token Details
           </Label>
 
           {/* Name & Symbol */}
