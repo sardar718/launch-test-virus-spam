@@ -25,11 +25,19 @@ interface LaunchRaw {
   [key: string]: unknown;
 }
 
+interface DexData {
+  volume24h: string | null;
+  priceUsd: string | null;
+  txns24h: number | null;
+  buys24h: number | null;
+  sells24h: number | null;
+}
+
 async function fetchVolumes(
   addresses: string[],
   network: string,
-): Promise<Record<string, { volume24h: string | null; priceUsd: string | null }>> {
-  const result: Record<string, { volume24h: string | null; priceUsd: string | null }> = {};
+): Promise<Record<string, DexData>> {
+  const result: Record<string, DexData> = {};
   if (addresses.length === 0) return result;
 
   // Batch up to 30 addresses to DexScreener (free API)
@@ -45,9 +53,14 @@ async function fetchVolumes(
       for (const pair of pairs) {
         const addr = (pair.baseToken?.address || "").toLowerCase();
         if (addr && !result[addr]) {
+          const buys = pair.txns?.h24?.buys ?? null;
+          const sells = pair.txns?.h24?.sells ?? null;
           result[addr] = {
             volume24h: pair.volume?.h24?.toString() || null,
             priceUsd: pair.priceUsd || null,
+            txns24h: buys != null && sells != null ? buys + sells : null,
+            buys24h: buys,
+            sells24h: sells,
           };
         }
       }
@@ -89,7 +102,7 @@ export async function GET(request: Request) {
     // Fetch volumes in parallel
     const volumes = await fetchVolumes(addresses, sourceInfo.network);
 
-    // Enrich launches with volume data
+    // Enrich launches with volume + txns data
     const launches = rawLaunches.map((launch) => {
       const addr = (launch.contractAddress || launch.contract_address || launch.address || launch.id || "").toLowerCase();
       const vol = volumes[addr];
@@ -97,6 +110,9 @@ export async function GET(request: Request) {
         ...launch,
         volume24h: vol?.volume24h || null,
         priceUsd: vol?.priceUsd || null,
+        txns24h: vol?.txns24h ?? null,
+        buys24h: vol?.buys24h ?? null,
+        sells24h: vol?.sells24h ?? null,
       };
     });
 

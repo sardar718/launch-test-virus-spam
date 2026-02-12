@@ -51,6 +51,7 @@ export function AutoLaunchPanel() {
   const [launchpad, setLaunchpad] = useState<Launchpad>("kibu");
   const [agent, setAgent] = useState<Agent>("4claw_org");
   const [chain, setChain] = useState("bsc");
+  const [kibuPlatform, setKibuPlatform] = useState<"flap" | "fourmeme">("flap");
   const [minVolume, setMinVolume] = useState("100");
   const [delaySeconds, setDelaySeconds] = useState("30");
   const [maxLaunches, setMaxLaunches] = useState("10");
@@ -59,6 +60,7 @@ export function AutoLaunchPanel() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [stats, setStats] = useState({ launched: 0, skipped: 0, errors: 0 });
   const [launched, setLaunched] = useState<Set<string>>(new Set());
+  const [enrichSocials, setEnrichSocials] = useState(true);
   const abortRef = useRef(false);
   const sourceRef = useRef(0);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -92,8 +94,36 @@ export function AutoLaunchPanel() {
     }
   };
 
+  // Lookup social links for celebrity/project tokens
+  const lookupSocials = async (tokenName: string, tokenSymbol: string): Promise<{ twitter: string; website: string }> => {
+    try {
+      const r = await fetch("/api/lookup-socials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: tokenName, symbol: tokenSymbol }),
+      });
+      const d = await r.json();
+      return { twitter: d.twitter || "", website: d.website || "" };
+    } catch {
+      return { twitter: "", website: "" };
+    }
+  };
+
   const deployToken = async (token: AutoToken): Promise<boolean> => {
     const desc = token.description || (await generateDesc(token.name, token.symbol));
+
+    // Auto-lookup socials for celebrity/project tokens if enabled and not already provided
+    let tokenWebsite = token.website || "";
+    let tokenTwitter = "";
+    if (enrichSocials && !tokenWebsite) {
+      addLog(`Looking up socials for ${token.name}...`);
+      const socials = await lookupSocials(token.name, token.symbol);
+      tokenTwitter = socials.twitter;
+      tokenWebsite = socials.website;
+      if (tokenTwitter || tokenWebsite) {
+        addLog(`Found: ${tokenTwitter ? `X: ${tokenTwitter}` : ""}${tokenWebsite ? ` Web: ${tokenWebsite}` : ""}`);
+      }
+    }
 
     // Auto-select direct_api agent for FourClaw.Fun
     const effectiveAgent = launchpad === "fourclaw_fun" ? "direct_api" : agent;
@@ -101,13 +131,15 @@ export function AutoLaunchPanel() {
     const body = {
       launchpad,
       agent: effectiveAgent,
+      kibuPlatform: launchpad === "kibu" ? kibuPlatform : undefined,
       token: {
         name: token.name,
         symbol: token.symbol.toUpperCase(),
         wallet: activeWallet,
         description: desc,
         image: token.imageUrl || "",
-        website: token.website || "",
+        website: tokenWebsite,
+        twitter: tokenTwitter,
         chain,
       },
     };
@@ -316,6 +348,42 @@ export function AutoLaunchPanel() {
           </div>
         </div>
 
+        {/* Kibu DEX Platform */}
+        {launchpad === "kibu" && (
+          <div>
+            <Label className="text-[10px] text-muted-foreground mb-1 block">DEX Platform</Label>
+            <div className="flex gap-1">
+              <button
+                type="button"
+                onClick={() => setKibuPlatform("flap")}
+                disabled={running}
+                className={`rounded px-3 py-1 text-[10px] font-medium transition-colors ${
+                  kibuPlatform === "flap"
+                    ? "bg-chart-3/20 text-chart-3 ring-1 ring-chart-3/30"
+                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                } disabled:opacity-50`}
+              >
+                Flap.sh
+              </button>
+              <button
+                type="button"
+                onClick={() => { setKibuPlatform("fourmeme"); setChain("bsc"); }}
+                disabled={running}
+                className={`rounded px-3 py-1 text-[10px] font-medium transition-colors ${
+                  kibuPlatform === "fourmeme"
+                    ? "bg-accent/20 text-accent ring-1 ring-accent/30"
+                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                } disabled:opacity-50`}
+              >
+                Four.meme
+              </button>
+            </div>
+            <p className="text-[8px] text-muted-foreground mt-0.5">
+              {kibuPlatform === "fourmeme" ? "BSC only | 3% tax to you | via four.meme" : "Default | 3% tax | BSC/Base"}
+            </p>
+          </div>
+        )}
+
         {/* Params */}
         <div className="grid grid-cols-3 gap-2">
           <div>
@@ -357,6 +425,28 @@ export function AutoLaunchPanel() {
               placeholder="10"
             />
           </div>
+        </div>
+
+        {/* Social enrichment toggle */}
+        <div className="flex items-center justify-between rounded-md bg-secondary/50 border border-border px-2.5 py-1.5">
+          <div>
+            <p className="text-[10px] font-medium text-card-foreground">Auto-enrich socials</p>
+            <p className="text-[9px] text-muted-foreground">
+              Look up X accounts and websites for celebrity/project tokens
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setEnrichSocials(!enrichSocials)}
+            disabled={running}
+            className={`rounded px-2 py-0.5 text-[9px] font-medium transition-colors ${
+              enrichSocials
+                ? "bg-chart-3/20 text-chart-3"
+                : "bg-secondary text-muted-foreground"
+            } disabled:opacity-50`}
+          >
+            {enrichSocials ? "ON" : "OFF"}
+          </button>
         </div>
 
         {/* Admin wallet with custom option */}

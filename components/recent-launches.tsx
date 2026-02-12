@@ -2,7 +2,7 @@
 
 import useSWR from "swr";
 import { useState } from "react";
-import { ExternalLink, Rocket, RefreshCw, BarChart3 } from "lucide-react";
+import { ExternalLink, Rocket, RefreshCw, BarChart3, ArrowLeftRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
@@ -25,6 +25,9 @@ interface LaunchToken {
   source?: string;
   volume24h?: string | null;
   priceUsd?: string | null;
+  txns24h?: number | null;
+  buys24h?: number | null;
+  sells24h?: number | null;
 }
 
 const SOURCES = [
@@ -38,6 +41,12 @@ const SOURCES = [
 function truncateAddress(addr: string | undefined): string {
   if (!addr) return "--";
   return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+}
+
+function formatTxns(value: number | null | undefined): string {
+  if (value == null || value === 0) return "--";
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
+  return value.toString();
 }
 
 function formatVolume(value: string | null | undefined): string {
@@ -63,11 +72,13 @@ export function RecentLaunches() {
     ? data
     : data?.launches || data?.data || [];
 
-  // Calculate total volume across all visible launches
-  const totalVolume = launches.slice(0, 10).reduce((sum, launch) => {
+  // Calculate totals across all visible launches
+  const visibleLaunches = launches.slice(0, 10);
+  const totalVolume = visibleLaunches.reduce((sum, launch) => {
     const vol = Number.parseFloat(launch.volume24h || "0");
     return sum + (Number.isNaN(vol) ? 0 : vol);
   }, 0);
+  const totalTxns = visibleLaunches.reduce((sum, launch) => sum + (launch.txns24h || 0), 0);
 
   return (
     <div className="rounded-xl border border-border bg-card p-6">
@@ -88,7 +99,13 @@ export function RecentLaunches() {
                 {totalVolume > 0 && (
                   <span className="flex items-center gap-1 rounded-full bg-chart-3/10 px-2 py-0.5 text-[10px] font-mono font-semibold text-chart-3">
                     <BarChart3 className="h-2.5 w-2.5" />
-                    {formatVolume(totalVolume.toString())} total vol
+                    {formatVolume(totalVolume.toString())} vol
+                  </span>
+                )}
+                {totalTxns > 0 && (
+                  <span className="flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-mono font-semibold text-accent">
+                    <ArrowLeftRight className="h-2.5 w-2.5" />
+                    {formatTxns(totalTxns)} txns
                   </span>
                 )}
               </div>
@@ -197,13 +214,17 @@ export function RecentLaunches() {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <p className="font-mono text-xs text-muted-foreground">
                       {truncateAddress(addr)}
                     </p>
                     <span className="flex items-center gap-0.5 rounded bg-chart-3/10 px-1.5 py-0.5 text-[10px] font-mono text-chart-3">
                       <BarChart3 className="h-2.5 w-2.5" />
                       {formatVolume(launch.volume24h)}
+                    </span>
+                    <span className="flex items-center gap-0.5 rounded bg-accent/10 px-1.5 py-0.5 text-[10px] font-mono text-accent">
+                      <ArrowLeftRight className="h-2.5 w-2.5" />
+                      {formatTxns(launch.txns24h)} txns
                     </span>
                   </div>
                 </div>

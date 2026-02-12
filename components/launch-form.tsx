@@ -23,6 +23,8 @@ import {
   Eye,
   EyeOff,
   Sparkles,
+  ImageIcon,
+  Search,
 } from "lucide-react";
 import type { TokenPrefill } from "@/app/page";
 import { addDeployedToken } from "@/components/deployed-tokens-box";
@@ -225,6 +227,44 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
     }
   }
 
+  // Image generation
+  const [isGeneratingLogo, setIsGeneratingLogo] = useState(false);
+  const [isSearchingImage, setIsSearchingImage] = useState(false);
+  const [logoProvider, setLogoProvider] = useState("pollinations");
+  const [showLogoProviders, setShowLogoProviders] = useState(false);
+
+  async function handleGenerateLogo() {
+    if (!name.trim()) return;
+    setIsGeneratingLogo(true);
+    try {
+      const res = await fetch("/api/generate-logo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, symbol, provider: logoProvider }),
+      });
+      const data = await res.json();
+      if (data.url) setImageUrl(data.url);
+    } catch { /* ignore */ } finally {
+      setIsGeneratingLogo(false);
+    }
+  }
+
+  async function handleSearchImage() {
+    if (!name.trim()) return;
+    setIsSearchingImage(true);
+    try {
+      const res = await fetch("/api/search-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, symbol }),
+      });
+      const data = await res.json();
+      if (data.url) setImageUrl(data.url);
+    } catch { /* ignore */ } finally {
+      setIsSearchingImage(false);
+    }
+  }
+
   // Deploy state
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployResult, setDeployResult] = useState<DeployResult | null>(null);
@@ -333,7 +373,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
     if (twitter) post += `\ntwitter: ${twitter}`;
     if (telegram && launchpad === "4claw") post += `\ntelegram: ${telegram}`;
     if (launchpad === "kibu" || launchpad === "clawnch") post += `\nchain: ${tokenChain}`;
-    if (launchpad === "kibu" && kibuPlatform === "fourmeme") post += `\nplatform: fourmeme`;
+    if (launchpad === "kibu" && kibuPlatform === "fourmeme") post += `\nlaunchpad: fourmeme`;
     if (launchpad === "4claw" && enableTax && lpInfo.supportsTax)
       post += `\n\ntax: ${tax}\nfunds: ${funds}\nburn: ${burn}\nholders: ${holders}\nlp: ${lp}`;
     return post;
@@ -595,7 +635,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
             </button>
             <button
               type="button"
-              onClick={() => setKibuPlatform("fourmeme")}
+              onClick={() => { setKibuPlatform("fourmeme"); setTokenChain("bsc"); }}
               className={`flex-1 rounded-lg border px-3 py-2 text-left transition-all ${
                 kibuPlatform === "fourmeme"
                   ? "border-accent bg-accent/5 ring-1 ring-accent/20"
@@ -606,7 +646,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
                 Four.meme
               </p>
               <p className="text-[9px] text-muted-foreground mt-0.5">
-                New | BSC | four.meme
+                BSC only | 3% tax to you | four.meme
               </p>
             </button>
           </div>
@@ -723,15 +763,75 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
             />
           </div>
 
-          {/* Image URL */}
+          {/* Image URL with AI + Search buttons */}
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Image URL</Label>
-            <Input
-              placeholder="https://your-host.com/image.png"
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-sm"
-            />
+            <div className="flex items-center justify-between">
+              <Label className="text-xs text-muted-foreground">Image URL</Label>
+              <div className="relative flex items-center gap-1">
+                {/* AI Generate Logo */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={handleGenerateLogo}
+                    disabled={isGeneratingLogo || !name.trim()}
+                    className="flex items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors"
+                  >
+                    {isGeneratingLogo ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <ImageIcon className="h-2.5 w-2.5" />}
+                    AI Logo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowLogoProviders(!showLogoProviders)}
+                    className="absolute -right-3 -top-1 flex h-3 w-3 items-center justify-center rounded-full bg-muted text-[7px] text-muted-foreground hover:bg-primary/20 hover:text-primary"
+                    aria-label="Select AI provider"
+                  >
+                    <ChevronDown className="h-2 w-2" />
+                  </button>
+                </div>
+                {/* Google Search Image */}
+                <button
+                  type="button"
+                  onClick={handleSearchImage}
+                  disabled={isSearchingImage || !name.trim()}
+                  className="flex items-center gap-0.5 rounded bg-chart-3/10 px-1.5 py-0.5 text-[9px] font-medium text-chart-3 hover:bg-chart-3/20 disabled:opacity-50 transition-colors"
+                >
+                  {isSearchingImage ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Search className="h-2.5 w-2.5" />}
+                  Search
+                </button>
+              </div>
+            </div>
+            {/* Provider dropdown */}
+            {showLogoProviders && (
+              <div className="flex items-center gap-1.5 rounded-md border border-border bg-secondary p-1.5">
+                <span className="text-[9px] text-muted-foreground">AI:</span>
+                {[
+                  { id: "pollinations", label: "Pollinations" },
+                  { id: "picsum", label: "Picsum (random)" },
+                ].map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => { setLogoProvider(p.id); setShowLogoProviders(false); }}
+                    className={`rounded px-1.5 py-0.5 text-[9px] transition-colors ${logoProvider === p.id ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="relative">
+              <Input
+                placeholder="https://your-host.com/image.png"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-sm"
+              />
+              {imageUrl && (
+                <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                  <img src={imageUrl} alt="" className="h-6 w-6 rounded object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Socials toggle */}

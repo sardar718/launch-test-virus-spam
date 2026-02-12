@@ -43,9 +43,9 @@ function buildPostContent(launchpad: string, token: TokenData, kibuPlatform?: st
     post += `\ntelegram: ${token.telegram}`;
   if ((launchpad === "kibu" || launchpad === "clawnch") && token.chain)
     post += `\nchain: ${token.chain}`;
-  // Four.meme platform for Kibu
+  // Four.meme launchpad override for Kibu (uses 'launchpad' field per new docs)
   if (launchpad === "kibu" && kibuPlatform === "fourmeme")
-    post += `\nplatform: fourmeme`;
+    post += `\nlaunchpad: fourmeme`;
   if (launchpad === "4claw" && token.tax) {
     post += `\n\ntax: ${token.tax}\nfunds: ${token.funds || 97}\nburn: ${token.burn || 1}\nholders: ${token.holders || 1}\nlp: ${token.lp || 1}`;
   }
@@ -72,9 +72,9 @@ function buildMoltbookContent(launchpad: string, token: TokenData, kibuPlatform?
   if (token.twitter) jsonObj.twitter = token.twitter;
   if ((launchpad === "kibu" || launchpad === "clawnch") && token.chain)
     jsonObj.chain = token.chain;
-  // Four.meme platform for Kibu
+  // Four.meme launchpad override for Kibu (uses 'launchpad' field per new docs)
   if (launchpad === "kibu" && kibuPlatform === "fourmeme")
-    jsonObj.platform = "fourmeme";
+    jsonObj.launchpad = "fourmeme";
   return `${cmd}\n\`\`\`json\n${JSON.stringify(jsonObj, null, 2)}\n\`\`\``;
 }
 
