@@ -46,7 +46,12 @@ const AGENT_OPTIONS: { id: Agent; label: string }[] = [
   { id: "direct_api", label: "Direct API" },
 ];
 
-export function AutoLaunchPanel() {
+interface AutoLaunchPanelProps {
+  instanceId?: number;
+  instanceLabel?: string;
+}
+
+export function AutoLaunchPanel({ instanceId = 1, instanceLabel }: AutoLaunchPanelProps) {
   const [running, setRunning] = useState(false);
   const [launchpad, setLaunchpad] = useState<Launchpad>("kibu");
   const [agent, setAgent] = useState<Agent>("4claw_org");
@@ -112,16 +117,24 @@ export function AutoLaunchPanel() {
   const deployToken = async (token: AutoToken): Promise<boolean> => {
     const desc = token.description || (await generateDesc(token.name, token.symbol));
 
-    // Auto-lookup socials for celebrity/project tokens if enabled and not already provided
+    // Auto-lookup socials for tokens if enabled and not already provided
+    // Only use VERIFIED results -- never add fake/non-existent accounts
     let tokenWebsite = token.website || "";
     let tokenTwitter = "";
     if (enrichSocials && !tokenWebsite) {
       addLog(`Looking up socials for ${token.name}...`);
       const socials = await lookupSocials(token.name, token.symbol);
-      tokenTwitter = socials.twitter;
-      tokenWebsite = socials.website;
+      // Only use results that look real (not AI-guessed placeholders)
+      if (socials.twitter && socials.twitter.startsWith("@") && socials.twitter.length > 2) {
+        tokenTwitter = socials.twitter;
+      }
+      if (socials.website && socials.website.startsWith("http") && !socials.website.includes("example.com")) {
+        tokenWebsite = socials.website;
+      }
       if (tokenTwitter || tokenWebsite) {
-        addLog(`Found: ${tokenTwitter ? `X: ${tokenTwitter}` : ""}${tokenWebsite ? ` Web: ${tokenWebsite}` : ""}`);
+        addLog(`Found verified: ${tokenTwitter ? `X: ${tokenTwitter}` : ""}${tokenWebsite ? ` Web: ${tokenWebsite}` : ""}`);
+      } else {
+        addLog("No verified socials found -- launching without socials");
       }
     }
 
@@ -266,7 +279,7 @@ export function AutoLaunchPanel() {
             <span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent/20 text-accent text-xs">
               {">>"}
             </span>
-            Auto-Launch
+            {instanceLabel || `Auto-Launch${instanceId > 1 ? ` #${instanceId}` : ""}`}
           </CardTitle>
           {running && (
             <Badge variant="outline" className="border-chart-3/40 text-chart-3 animate-pulse text-[10px]">

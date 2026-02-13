@@ -106,7 +106,7 @@ const LAUNCHPADS: Record<LaunchpadId, LaunchpadInfo> = {
     chains: ["bsc", "solana"],
     fee: "Free (20% platform)",
     rateLimit: "10/hour",
-    agents: ["direct_api"],
+    agents: ["direct_api", "moltx", "moltbook", "4claw_org", "clawstr"],
     supportsTax: true,
     docUrl: "https://fourclaw.fun/api-skill.md",
     color: "text-[#F59E0B]",
@@ -197,7 +197,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
   const [burn, setBurn] = useState(1);
   const [holders, setHolders] = useState(1);
   const [lp, setLp] = useState(1);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  // showAdvanced removed -- social links are always visible
 
   // Moltbook key (only needed for Moltbook agent)
   const [moltbookKey, setMoltbookKey] = useState("");
@@ -285,14 +285,8 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
       setName(prefill.name);
       setSymbol(prefill.symbol);
       if (prefill.imageUrl) setImageUrl(prefill.imageUrl);
-      if (prefill.website) {
-        setWebsite(prefill.website);
-        setShowAdvanced(true);
-      }
-      if (prefill.twitter) {
-        setTwitter(prefill.twitter);
-        setShowAdvanced(true);
-      }
+      if (prefill.website) setWebsite(prefill.website);
+      if (prefill.twitter) setTwitter(prefill.twitter);
       // Auto-generate description via AI if not already provided
       if (prefill.description) {
         setDescription(prefill.description);
@@ -764,124 +758,133 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
           </div>
 
           {/* Image URL with AI + Search buttons */}
-          <div className="space-y-1">
+          <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs text-muted-foreground">Image URL</Label>
-              <div className="relative flex items-center gap-1">
-                {/* AI Generate Logo */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={handleGenerateLogo}
-                    disabled={isGeneratingLogo || !name.trim()}
-                    className="flex items-center gap-0.5 rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors"
-                  >
-                    {isGeneratingLogo ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <ImageIcon className="h-2.5 w-2.5" />}
-                    AI Logo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowLogoProviders(!showLogoProviders)}
-                    className="absolute -right-3 -top-1 flex h-3 w-3 items-center justify-center rounded-full bg-muted text-[7px] text-muted-foreground hover:bg-primary/20 hover:text-primary"
-                    aria-label="Select AI provider"
-                  >
-                    <ChevronDown className="h-2 w-2" />
-                  </button>
-                </div>
-                {/* Google Search Image */}
-                <button
-                  type="button"
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGenerateLogo}
+                  disabled={isGeneratingLogo || !name.trim()}
+                  className="h-6 px-2 text-[9px] border-border bg-transparent text-muted-foreground hover:text-primary hover:border-primary/40"
+                >
+                  {isGeneratingLogo ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <ImageIcon className="h-3 w-3 mr-1" />}
+                  AI Logo
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={handleSearchImage}
                   disabled={isSearchingImage || !name.trim()}
-                  className="flex items-center gap-0.5 rounded bg-chart-3/10 px-1.5 py-0.5 text-[9px] font-medium text-chart-3 hover:bg-chart-3/20 disabled:opacity-50 transition-colors"
+                  className="h-6 px-2 text-[9px] border-border bg-transparent text-muted-foreground hover:text-chart-3 hover:border-chart-3/40"
                 >
-                  {isSearchingImage ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Search className="h-2.5 w-2.5" />}
+                  {isSearchingImage ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : <Search className="h-3 w-3 mr-1" />}
                   Search
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => setShowLogoProviders(!showLogoProviders)}
+                  className="flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+                  aria-label="Select AI provider"
+                >
+                  <ChevronDown className="h-3 w-3" />
                 </button>
               </div>
             </div>
-            {/* Provider dropdown */}
+            {/* Provider selector */}
             {showLogoProviders && (
-              <div className="flex items-center gap-1.5 rounded-md border border-border bg-secondary p-1.5">
-                <span className="text-[9px] text-muted-foreground">AI:</span>
+              <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-secondary p-2">
+                <span className="text-[9px] text-muted-foreground font-medium">AI Provider:</span>
                 {[
                   { id: "pollinations", label: "Pollinations" },
-                  { id: "picsum", label: "Picsum (random)" },
+                  { id: "pixabay", label: "Pixabay" },
+                  { id: "dicebear", label: "DiceBear" },
+                  { id: "picsum", label: "Picsum" },
                 ].map((p) => (
                   <button
                     key={p.id}
                     type="button"
                     onClick={() => { setLogoProvider(p.id); setShowLogoProviders(false); }}
-                    className={`rounded px-1.5 py-0.5 text-[9px] transition-colors ${logoProvider === p.id ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:text-foreground"}`}
+                    className={`rounded-md border px-2 py-0.5 text-[9px] transition-colors ${logoProvider === p.id ? "border-primary bg-primary/10 text-primary font-medium" : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/20"}`}
                   >
                     {p.label}
                   </button>
                 ))}
               </div>
             )}
-            <div className="relative">
-              <Input
-                placeholder="https://your-host.com/image.png"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-sm"
-              />
-              {imageUrl && (
-                <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                  <img src={imageUrl} alt="" className="h-6 w-6 rounded object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+            <Input
+              placeholder="https://your-host.com/image.png"
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-sm"
+            />
+            {/* Image preview below the input */}
+            {imageUrl && (
+              <div className="flex items-center gap-3 rounded-lg border border-border bg-secondary/50 p-2">
+                <img
+                  src={imageUrl}
+                  alt="Token logo preview"
+                  className="h-16 w-16 rounded-lg object-cover bg-secondary"
+                  onError={(e) => { (e.target as HTMLImageElement).src = ""; (e.target as HTMLImageElement).alt = "Failed to load"; }}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] text-muted-foreground truncate">{imageUrl}</p>
+                  <p className="text-[9px] text-chart-3 mt-0.5">Preview loaded</p>
                 </div>
-              )}
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setImageUrl("")}
+                  className="text-[9px] text-destructive hover:underline shrink-0"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Socials toggle */}
-          <button
-            type="button"
-            onClick={() => setShowAdvanced(!showAdvanced)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            {showAdvanced ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            Social Links
-          </button>
-
-          {showAdvanced && (
+          {/* Social Links -- always visible */}
+          <div className="space-y-1.5">
+            <Label className="text-[10px] text-muted-foreground uppercase tracking-wider block">Social Links</Label>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <Label className="text-[10px] text-muted-foreground">Website</Label>
-                  <button
-                    type="button"
+                  <Label className="text-xs text-muted-foreground">Website</Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => handleSuggestSocial("website")}
                     disabled={isSuggestingWebsite || !name.trim()}
-                    className="flex items-center gap-0.5 text-[9px] text-muted-foreground hover:text-primary disabled:opacity-50"
+                    className="h-5 px-1.5 text-[9px] border-border bg-transparent text-muted-foreground hover:text-primary hover:border-primary/40"
                   >
-                    {isSuggestingWebsite ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
+                    {isSuggestingWebsite ? <Loader2 className="h-2.5 w-2.5 animate-spin mr-0.5" /> : <Sparkles className="h-2.5 w-2.5 mr-0.5" />}
                     AI
-                  </button>
+                  </Button>
                 </div>
                 <Input placeholder="https://..." value={website} onChange={(e) => setWebsite(e.target.value)} className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-xs" />
               </div>
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
-                  <Label className="text-[10px] text-muted-foreground">Twitter</Label>
-                  <button
-                    type="button"
+                  <Label className="text-xs text-muted-foreground">Twitter / X</Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => handleSuggestSocial("twitter")}
                     disabled={isSuggestingTwitter || !name.trim()}
-                    className="flex items-center gap-0.5 text-[9px] text-muted-foreground hover:text-primary disabled:opacity-50"
+                    className="h-5 px-1.5 text-[9px] border-border bg-transparent text-muted-foreground hover:text-primary hover:border-primary/40"
                   >
-                    {isSuggestingTwitter ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
+                    {isSuggestingTwitter ? <Loader2 className="h-2.5 w-2.5 animate-spin mr-0.5" /> : <Sparkles className="h-2.5 w-2.5 mr-0.5" />}
                     AI
-                  </button>
+                  </Button>
                 </div>
                 <Input placeholder="@handle" value={twitter} onChange={(e) => setTwitter(e.target.value)} className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-xs" />
               </div>
               <div className="space-y-1">
-                <Label className="text-[10px] text-muted-foreground">Telegram</Label>
+                <Label className="text-xs text-muted-foreground">Telegram</Label>
                 <Input placeholder="t.me/group" value={telegram} onChange={(e) => setTelegram(e.target.value)} className="bg-secondary border-border text-secondary-foreground placeholder:text-muted-foreground text-xs" />
               </div>
             </div>
-          )}
+          </div>
 
           {/* Tax Config (4claw only) */}
           {lpInfo.supportsTax && (

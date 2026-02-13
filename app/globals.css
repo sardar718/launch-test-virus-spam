@@ -9,6 +9,7 @@
 }
 
 @layer base {
+  /* Dark theme (default) */
   :root {
     --background: 220 20% 6%;
     --foreground: 210 20% 92%;
@@ -43,6 +44,42 @@
     --sidebar-accent-foreground: 210 20% 85%;
     --sidebar-border: 220 15% 16%;
     --sidebar-ring: 14 90% 55%;
+  }
+
+  /* Light theme */
+  .light {
+    --background: 0 0% 98%;
+    --foreground: 220 20% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 10%;
+    --primary: 14 90% 50%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 220 10% 93%;
+    --secondary-foreground: 220 15% 30%;
+    --muted: 220 10% 93%;
+    --muted-foreground: 215 10% 45%;
+    --accent: 45 95% 50%;
+    --accent-foreground: 220 20% 10%;
+    --destructive: 0 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 220 10% 88%;
+    --input: 220 10% 88%;
+    --ring: 14 90% 50%;
+    --chart-1: 14 90% 50%;
+    --chart-2: 45 95% 50%;
+    --chart-3: 160 60% 38%;
+    --chart-4: 200 70% 45%;
+    --chart-5: 340 75% 50%;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 220 15% 30%;
+    --sidebar-primary: 14 90% 50%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 10% 93%;
+    --sidebar-accent-foreground: 220 15% 30%;
+    --sidebar-border: 220 10% 88%;
+    --sidebar-ring: 14 90% 50%;
   }
 }
 

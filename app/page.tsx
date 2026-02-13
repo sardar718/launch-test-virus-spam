@@ -61,9 +61,11 @@ export default function Page() {
             <RecentLaunches />
           </div>
 
-          {/* Right: Auto Launch + Deployed Tokens */}
+          {/* Right: Auto Launch (x3) + Deployed Tokens */}
           <div className="space-y-4 lg:col-span-7">
-            <AutoLaunchPanel />
+            <AutoLaunchPanel instanceId={1} instanceLabel="Auto-Launch #1" />
+            <AutoLaunchPanel instanceId={2} instanceLabel="Auto-Launch #2" />
+            <AutoLaunchPanel instanceId={3} instanceLabel="Auto-Launch #3" />
             <DeployedTokensBox />
           </div>
         </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { ExternalLink } from "lucide-react";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const NAV_LINKS = [
   { label: "4claw", url: "https://4claw.fun", desc: "BSC" },
@@ -45,17 +46,20 @@ export function Header() {
           ))}
         </nav>
 
-        <div className="flex items-center gap-1.5">
-          {[
-            { label: "BSC", color: "bg-accent" },
-            { label: "Base", color: "bg-[#0052FF]" },
-            { label: "SOL", color: "bg-[#9945FF]" },
-          ].map((chain) => (
-            <div key={chain.label} className="flex items-center gap-1.5 rounded-md bg-secondary px-2 py-1">
-              <span className={`h-1.5 w-1.5 rounded-full ${chain.color} animate-pulse-glow`} />
-              <span className="text-[10px] font-mono text-secondary-foreground">{chain.label}</span>
-            </div>
-          ))}
+        <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-1.5 sm:flex">
+            {[
+              { label: "BSC", color: "bg-accent" },
+              { label: "Base", color: "bg-[#0052FF]" },
+              { label: "SOL", color: "bg-[#9945FF]" },
+            ].map((chain) => (
+              <div key={chain.label} className="flex items-center gap-1.5 rounded-md bg-secondary px-2 py-1">
+                <span className={`h-1.5 w-1.5 rounded-full ${chain.color} animate-pulse-glow`} />
+                <span className="text-[10px] font-mono text-secondary-foreground">{chain.label}</span>
+              </div>
+            ))}
+          </div>
+          <ThemeToggle />
         </div>
       </div>
     </header>

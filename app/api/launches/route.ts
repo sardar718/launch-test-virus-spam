@@ -5,7 +5,7 @@ const SOURCES: Record<string, { url: string; network: string }> = {
   "kibu-base": { url: "https://kibu.bot/api/launches?limit=12&chain=base", network: "base" },
   clawnch: { url: "https://clawn.ch/api/launches?limit=12", network: "base" },
   "4claw": { url: "https://api.4claw.fun/api/launches?limit=12", network: "bsc" },
-  "fourclaw-fun": { url: "https://fourclaw.fun/api/launches?limit=12", network: "bsc" },
+  "fourclaw-fun": { url: "https://fourclaw.fun/api/tokens?limit=12", network: "bsc" },
 };
 
 interface LaunchRaw {
@@ -92,7 +92,21 @@ export async function GET(request: Request) {
     }
 
     const data = await res.json();
-    const rawLaunches: LaunchRaw[] = data?.launches || data?.tokens || data?.data || [];
+    let rawLaunches: LaunchRaw[] = data?.launches || data?.tokens || data?.data || [];
+
+    // FourClaw.Fun returns tokens with different field names -- normalize them
+    if (source === "fourclaw-fun" && Array.isArray(rawLaunches)) {
+      rawLaunches = rawLaunches.map((t: Record<string, unknown>) => ({
+        name: (t.name as string) || undefined,
+        symbol: (t.symbol as string) || undefined,
+        contractAddress: (t.tokenAddress as string) || (t.tokenMint as string) || (t.id as string) || undefined,
+        description: (t.description as string) || undefined,
+        image: (t.imageUrl as string) || undefined,
+        createdAt: (t.timestamps as Record<string, string>)?.created || undefined,
+        status: (t.status as string) || undefined,
+        chain: (t.blockchain as string) === "SOL" ? "solana" : "bsc",
+      }));
+    }
 
     // Extract contract addresses for volume lookup
     const addresses = rawLaunches

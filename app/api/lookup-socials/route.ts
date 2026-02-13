@@ -2,11 +2,7 @@ import { NextResponse } from "next/server";
 
 /**
  * Looks up the X/Twitter handle and website for a token name.
- * Used by auto-launch to enrich celebrity/project tokens with real social links.
- *
- * Strategy:
- * 1. CoinGecko search (for existing crypto projects)
- * 2. AI inference (for celebrities and new projects)
+ * Only returns VERIFIED results from CoinGecko. Never invents fake accounts.
  */
 export async function POST(request: Request) {
   try {
@@ -29,10 +25,9 @@ export async function POST(request: Request) {
         const match = coins.find(
           (c: { symbol?: string; name?: string }) =>
             c.symbol?.toUpperCase() === (symbol || "").toUpperCase() ||
-            c.name?.toLowerCase().includes(name.toLowerCase()),
+            c.name?.toLowerCase() === name.toLowerCase(),
         );
         if (match?.id) {
-          // Fetch full details for social links
           const detailRes = await fetch(
             `https://api.coingecko.com/api/v3/coins/${match.id}?localization=false&tickers=false&market_data=false&community_data=true&developer_data=false`,
           );
@@ -41,68 +36,36 @@ export async function POST(request: Request) {
             twitter = detail?.links?.twitter_screen_name
               ? `@${detail.links.twitter_screen_name}`
               : "";
-            website = detail?.links?.homepage?.[0] || "";
+            const hp = detail?.links?.homepage?.[0] || "";
+            website = hp && hp !== "" ? hp : "";
           }
         }
       }
     } catch { /* fall through */ }
 
-    // Strategy 2: If no CoinGecko result, use AI to infer (for celebrities)
-    if (!twitter && !website) {
+    // Strategy 2: Search DexScreener for token info (has social links)
+    if (!twitter && !website && symbol) {
       try {
-        const prompt = `You are a research assistant. For the entity/celebrity/project named "${name}" (crypto token symbol: ${symbol || "unknown"}):
-
-1. What is their official Twitter/X handle? Return @handle format
-2. What is their official website URL?
-
-If this is a celebrity (like Elon Musk, Trump, etc), return their personal X handle.
-If this is a crypto project, return the project's X handle and website.
-If you don't know, make a plausible guess based on the name.
-
-Return ONLY a JSON object like: {"twitter": "@handle", "website": "https://example.com"}
-Nothing else. No explanation.`;
-
-        // Try Groq first (free tier)
-        const groqRes = await fetch(
-          "https://api.groq.com/openai/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${process.env.GROQ_API_KEY || ""}`,
-            },
-            body: JSON.stringify({
-              model: "llama-3.1-8b-instant",
-              messages: [{ role: "user", content: prompt }],
-              max_tokens: 100,
-              temperature: 0.2,
-            }),
-          },
+        const dexRes = await fetch(
+          `https://api.dexscreener.com/latest/dex/search?q=${encodeURIComponent(symbol)}`,
         );
-        if (groqRes.ok) {
-          const groqData = await groqRes.json();
-          const text = groqData?.choices?.[0]?.message?.content?.trim() || "";
-          // Parse JSON from response
-          const jsonMatch = text.match(/\{[^}]+\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            twitter = parsed.twitter || "";
-            website = parsed.website || "";
+        if (dexRes.ok) {
+          const dexData = await dexRes.json();
+          const pair = dexData?.pairs?.[0];
+          if (pair?.info?.socials) {
+            for (const s of pair.info.socials) {
+              if (s.type === "twitter" && s.url) twitter = s.url;
+            }
+          }
+          if (pair?.info?.websites?.[0]?.url) {
+            website = pair.info.websites[0].url;
           }
         }
       } catch { /* fall through */ }
     }
 
-    // Strategy 3: Smart fallback based on name
-    if (!twitter) {
-      const clean = name.toLowerCase().replace(/[^a-z0-9]/g, "");
-      twitter = `@${clean}`;
-    }
-    if (!website) {
-      const clean = name.toLowerCase().replace(/[^a-z0-9]/g, "");
-      website = `https://${clean}.com`;
-    }
-
+    // NO fallback -- never invent fake accounts
+    // Return empty strings if nothing was found
     return NextResponse.json({ twitter, website });
   } catch (error) {
     console.error("Lookup socials error:", error);
