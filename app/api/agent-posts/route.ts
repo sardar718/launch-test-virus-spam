@@ -39,7 +39,7 @@ function extractTokenInfo(content: string): { name: string; symbol: string } {
   return { name: "Unknown", symbol: "???" };
 }
 
-const LAUNCH_COMMANDS: Record<string, string> = {
+const KNOWN_COMMANDS: Record<string, string> = {
   "!4clawd": "4claw",
   "!kibu": "Kibu",
   "!clawnch": "Clawnch",
@@ -47,6 +47,16 @@ const LAUNCH_COMMANDS: Record<string, string> = {
   "!synthlaunch": "SynthLaunch",
   "!fourclaw": "FourClaw.Fun",
 };
+
+// Detect any post that starts with ! -- known or unknown commands
+function detectLaunchCommand(content: string): { command: string; launchpad: string } | null {
+  const trimmed = content.trim();
+  if (!trimmed.startsWith("!")) return null;
+  const firstWord = trimmed.split(/\s+/)[0].toLowerCase();
+  if (!firstWord || firstWord.length < 2) return null;
+  const launchpad = KNOWN_COMMANDS[firstWord] || firstWord.replace("!", "").toUpperCase();
+  return { command: firstWord, launchpad };
+}
 
 async function fetch4clawOrgPosts(): Promise<AgentPost[]> {
   const posts: AgentPost[] = [];
@@ -71,14 +81,14 @@ async function fetch4clawOrgPosts(): Promise<AgentPost[]> {
 
     for (const post of flatPosts.slice(0, 20)) {
       const content = String(post.content || post.body || "");
-      const firstWord = content.trim().split(/\s+/)[0]?.toLowerCase();
-      if (LAUNCH_COMMANDS[firstWord]) {
+      const detected = detectLaunchCommand(content);
+      if (detected) {
         const { name, symbol } = extractTokenInfo(content);
         posts.push({
           agent: "4claw.org",
           agentUrl: "https://www.4claw.org",
-          launchCommand: firstWord,
-          launchpad: LAUNCH_COMMANDS[firstWord],
+          launchCommand: detected.command,
+          launchpad: detected.launchpad,
           tokenName: name,
           tokenSymbol: symbol,
           timestamp: String(post.created_at || post.timestamp || new Date().toISOString()),
@@ -103,14 +113,14 @@ async function fetchMoltxPosts(): Promise<AgentPost[]> {
 
     for (const post of items.slice(0, 20)) {
       const content = String(post.content || post.body || post.text || "");
-      const firstWord = content.trim().split(/\s+/)[0]?.toLowerCase();
-      if (LAUNCH_COMMANDS[firstWord]) {
+      const detected = detectLaunchCommand(content);
+      if (detected) {
         const { name, symbol } = extractTokenInfo(content);
         posts.push({
           agent: "Moltx",
           agentUrl: "https://moltx.io",
-          launchCommand: firstWord,
-          launchpad: LAUNCH_COMMANDS[firstWord],
+          launchCommand: detected.command,
+          launchpad: detected.launchpad,
           tokenName: name,
           tokenSymbol: symbol,
           timestamp: String(post.created_at || post.timestamp || new Date().toISOString()),
@@ -135,14 +145,14 @@ async function fetchMoltbookPosts(): Promise<AgentPost[]> {
 
     for (const post of items.slice(0, 20)) {
       const content = String(post.content || post.body || post.text || "");
-      const firstWord = content.trim().split(/\s+/)[0]?.toLowerCase();
-      if (LAUNCH_COMMANDS[firstWord]) {
+      const detected = detectLaunchCommand(content);
+      if (detected) {
         const { name, symbol } = extractTokenInfo(content);
         posts.push({
           agent: "Moltbook",
           agentUrl: "https://www.moltbook.com",
-          launchCommand: firstWord,
-          launchpad: LAUNCH_COMMANDS[firstWord],
+          launchCommand: detected.command,
+          launchpad: detected.launchpad,
           tokenName: name,
           tokenSymbol: symbol,
           timestamp: String(post.created_at || post.timestamp || new Date().toISOString()),
@@ -169,14 +179,14 @@ async function fetchBapBookPosts(): Promise<AgentPost[]> {
 
     for (const post of items.slice(0, 20)) {
       const content = String(post.content || post.body || post.text || "");
-      const firstWord = content.trim().split(/\s+/)[0]?.toLowerCase();
-      if (LAUNCH_COMMANDS[firstWord]) {
+      const detected = detectLaunchCommand(content);
+      if (detected) {
         const { name, symbol } = extractTokenInfo(content);
         posts.push({
           agent: "BapBook",
           agentUrl: "https://bapbook.com",
-          launchCommand: firstWord,
-          launchpad: LAUNCH_COMMANDS[firstWord],
+          launchCommand: detected.command,
+          launchpad: detected.launchpad,
           tokenName: name,
           tokenSymbol: symbol,
           timestamp: String(post.created_at || post.timestamp || new Date().toISOString()),

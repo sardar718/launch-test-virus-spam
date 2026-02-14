@@ -33,6 +33,8 @@ const COMMAND_COLORS: Record<string, string> = {
   "!fourclaw": "bg-accent/10 text-accent border-accent/20",
 };
 
+const DEFAULT_COMMAND_COLOR = "bg-chart-5/10 text-chart-5 border-chart-5/20";
+
 const AGENT_COLORS: Record<string, string> = {
   "4claw.org": "text-primary",
   Moltx: "text-chart-4",
@@ -128,7 +130,7 @@ export function AgentPostsFeed() {
             >
               {/* Launch command badge */}
               <span
-                className={`shrink-0 rounded border px-2 py-0.5 text-[10px] font-mono font-bold ${COMMAND_COLORS[post.launchCommand] || "bg-secondary text-muted-foreground border-border"}`}
+                className={`shrink-0 rounded border px-2 py-0.5 text-[10px] font-mono font-bold ${COMMAND_COLORS[post.launchCommand] || DEFAULT_COMMAND_COLOR}`}
               >
                 {post.launchCommand}
               </span>

@@ -116,22 +116,20 @@ export function AutoLaunchPanel({ instanceId = 1, instanceLabel }: AutoLaunchPan
     }
   };
 
-  // Check if a URL is a real image link (ends with .png, .jpg, .jpeg, .webp, or has image content-type params)
+  // Check if a URL is a real image link (.png, .jpg, .webp) or from known image CDNs
   const isRealImageUrl = (url: string): boolean => {
     if (!url || !url.startsWith("http")) return false;
-    // Reject AI-generated / Pollinations URLs
+    // Reject AI-generated URLs
     if (url.includes("pollinations.ai")) return false;
     if (url.includes("dicebear.com")) return false;
-    // Must look like a real image
     const lower = url.toLowerCase();
+    // Direct image extensions
     if (lower.match(/\.(png|jpg|jpeg|webp|gif|svg)(\?|$)/)) return true;
-    // Also accept CDN URLs that serve images (CoinGecko, DexScreener, etc.)
-    if (lower.includes("coingecko.com")) return true;
-    if (lower.includes("dexscreener.com")) return true;
-    if (lower.includes("geckoterminal.com")) return true;
-    if (lower.includes("assets.")) return true;
-    if (lower.includes("/images/")) return true;
-    if (lower.includes("/logo")) return true;
+    // Known image CDNs
+    if (lower.includes("coin-images.coingecko.com")) return true;
+    if (lower.includes("assets.coingecko.com")) return true;
+    if (lower.includes("assets.geckoterminal.com")) return true;
+    if (lower.includes("wsrv.nl")) return true; // proxy CDN
     return false;
   };
 

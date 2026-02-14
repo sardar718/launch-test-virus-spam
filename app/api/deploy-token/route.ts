@@ -26,6 +26,39 @@ interface TokenData {
   lp?: number;
 }
 
+// ── Ensure image URL ends with .png/.jpg/.webp ──────────────────
+// If URL has query params (e.g. DexScreener ?width=800&height=800), proxy
+// through wsrv.nl free CDN which serves clean .png output.
+// Also tries GeckoTerminal and CoinGecko CDN links.
+function cleanImageUrl(url: string | undefined): string {
+  if (!url || !url.startsWith("http")) return "";
+  const lower = url.toLowerCase();
+
+  // Already a clean image extension -- use as-is
+  if (lower.match(/\.(png|jpg|jpeg|webp)$/)) return url;
+
+  // GeckoTerminal asset links are fine (they serve images directly)
+  if (lower.includes("assets.geckoterminal.com")) return url;
+
+  // CoinGecko coin-images are fine
+  if (lower.includes("coin-images.coingecko.com") && lower.includes(".png")) return url;
+
+  // DexScreener CMS images have ?width=&height= -- strip params to get raw image
+  if (lower.includes("dexscreener.com/cms/images/")) {
+    const base = url.split("?")[0];
+    // Proxy through wsrv.nl to get a .png output
+    return `https://wsrv.nl/?url=${encodeURIComponent(base)}&output=png`;
+  }
+
+  // Any other URL with query params -- proxy through wsrv.nl for clean .png
+  if (url.includes("?")) {
+    return `https://wsrv.nl/?url=${encodeURIComponent(url.split("?")[0])}&output=png`;
+  }
+
+  // URL has no extension and no params -- proxy it to ensure .png output
+  return `https://wsrv.nl/?url=${encodeURIComponent(url)}&output=png`;
+}
+
 // ── Build launch command content ────────────────────────────────
 function buildPostContent(launchpad: string, token: TokenData, kibuPlatform?: string): string {
   // SynthLaunch uses its own format
@@ -39,9 +72,10 @@ function buildPostContent(launchpad: string, token: TokenData, kibuPlatform?: st
         : launchpad === "molaunch"
           ? "!molaunch"
           : "!clawnch";
+  const cleanedImage = cleanImageUrl(token.image);
   let post = `${cmd}\nname: ${token.name}\nsymbol: ${token.symbol}\nwallet: ${token.wallet}`;
   if (token.description) post += `\ndescription: ${token.description}`;
-  if (token.image) post += `\nimage: ${token.image}`;
+  if (cleanedImage) post += `\nimage: ${cleanedImage}`;
   if (token.website) post += `\nwebsite: ${token.website}`;
   if (token.twitter) post += `\ntwitter: ${token.twitter}`;
   if (token.telegram && (launchpad === "4claw" || launchpad === "molaunch"))
@@ -62,7 +96,7 @@ function buildSynthLaunchContent(token: TokenData): string {
     name: token.name,
     symbol: token.symbol,
     description: token.description || `$${token.symbol} token`,
-    image: token.image || "",
+    image: cleanImageUrl(token.image),
     wallet: token.wallet,
   };
   if (token.tax) jsonObj.taxRate = token.tax * 100; // basis points
@@ -89,7 +123,8 @@ function buildMoltbookContent(launchpad: string, token: TokenData, kibuPlatform?
     wallet: token.wallet,
   };
   if (token.description) jsonObj.description = token.description;
-  if (token.image) jsonObj.image = token.image;
+  const moltCleanedImage = cleanImageUrl(token.image);
+  if (moltCleanedImage) jsonObj.image = moltCleanedImage;
   if (token.website) jsonObj.website = token.website;
   if (token.twitter) jsonObj.twitter = token.twitter;
   if ((launchpad === "kibu" || launchpad === "clawnch") && token.chain)
