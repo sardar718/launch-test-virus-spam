@@ -7,17 +7,18 @@ const NAV_LINKS = [
   { label: "4claw", url: "https://4claw.fun", desc: "BSC" },
   { label: "Kibu", url: "https://kibu.bot", desc: "BSC/Base" },
   { label: "Clawnch", url: "https://clawn.ch", desc: "Base" },
+  { label: "SynthLaunch", url: "https://synthlaunch.fun", desc: "BSC" },
   { label: "Moltx", url: "https://moltx.io", desc: "Agent" },
   { label: "Moltbook", url: "https://www.moltbook.com", desc: "Agent" },
-  { label: "Clawstr", url: "https://clawstr.com", desc: "Agent" },
 ];
 
 export function Header() {
   return (
-    <header className="border-b border-border bg-card">
+    <header className="border-b border-border bg-card relative">
+      <div className="absolute bottom-0 left-0 right-0 h-px bg-primary/20" />
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 lg:px-8">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-mono font-bold text-sm">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-mono font-bold text-sm shadow-sm shadow-primary/20">
             4C
           </div>
           <div>
@@ -25,7 +26,7 @@ export function Header() {
               Token Launchpad
             </h1>
             <p className="text-[10px] text-muted-foreground font-mono">
-              4claw | Kibu | Clawnch
+              6 Launchpads -- 5 Agents -- 3 Chains
             </p>
           </div>
         </div>

@@ -11,7 +11,7 @@ import { addDeployedToken } from "@/components/deployed-tokens-box";
 
 const DEFAULT_ADMIN = "0x9c6111C77CBE545B9703243F895EB593f2721C7a";
 
-type Launchpad = "4claw" | "kibu" | "clawnch" | "molaunch" | "fourclaw_fun";
+type Launchpad = "4claw" | "kibu" | "clawnch" | "molaunch" | "fourclaw_fun" | "synthlaunch";
 type Agent = "moltx" | "4claw_org" | "moltbook" | "clawstr" | "direct_api";
 
 interface AutoToken {
@@ -37,6 +37,7 @@ const LP_OPTIONS: { id: Launchpad; label: string; chains: string[] }[] = [
   { id: "clawnch", label: "Clawnch", chains: ["base"] },
   { id: "molaunch", label: "Molaunch", chains: ["solana"] },
   { id: "fourclaw_fun", label: "FourClaw.Fun", chains: ["bsc", "solana"] },
+  { id: "synthlaunch", label: "SynthLaunch", chains: ["bsc"] },
 ];
 
 const AGENT_OPTIONS: { id: Agent; label: string }[] = [
@@ -114,8 +115,50 @@ export function AutoLaunchPanel({ instanceId = 1, instanceLabel }: AutoLaunchPan
     }
   };
 
+  // Fetch a matching image for the token by name/symbol
+  const fetchTokenImage = async (tokenName: string, tokenSymbol: string): Promise<string> => {
+    // 1) Try search-image API (CoinGecko, DuckDuckGo, Serper)
+    try {
+      const r = await fetch("/api/search-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: tokenName, symbol: tokenSymbol }),
+      });
+      const d = await r.json();
+      if (d.url && d.url.startsWith("http")) return d.url;
+    } catch { /* fall through */ }
+
+    // 2) Try AI-generated logo via Pollinations
+    try {
+      const r = await fetch("/api/generate-logo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: tokenName, symbol: tokenSymbol, provider: "pollinations" }),
+      });
+      const d = await r.json();
+      if (d.url && d.url.startsWith("http")) return d.url;
+    } catch { /* fall through */ }
+
+    return "";
+  };
+
   const deployToken = async (token: AutoToken): Promise<boolean> => {
     const desc = token.description || (await generateDesc(token.name, token.symbol));
+
+    // ── Fix: always ensure we have a proper image matching the token ──
+    let tokenImage = token.imageUrl || "";
+    // If no image, or image is a generic placeholder / invalid, fetch a real one
+    if (!tokenImage || !tokenImage.startsWith("http") || tokenImage.includes("placeholder") || tokenImage.includes("missing")) {
+      addLog(`Searching image for ${token.name} ($${token.symbol})...`);
+      tokenImage = await fetchTokenImage(token.name, token.symbol);
+      if (tokenImage) {
+        addLog(`Found image for ${token.symbol}: ${tokenImage.substring(0, 60)}...`, "success");
+      } else {
+        addLog(`No image found for ${token.symbol} -- launching without image`);
+      }
+    } else {
+      addLog(`Using source image for ${token.symbol}`);
+    }
 
     // Auto-lookup socials for tokens if enabled and not already provided
     // Only use VERIFIED results -- never add fake/non-existent accounts
@@ -150,7 +193,7 @@ export function AutoLaunchPanel({ instanceId = 1, instanceLabel }: AutoLaunchPan
         symbol: token.symbol.toUpperCase(),
         wallet: activeWallet,
         description: desc,
-        image: token.imageUrl || "",
+        image: tokenImage,
         website: tokenWebsite,
         twitter: tokenTwitter,
         chain,

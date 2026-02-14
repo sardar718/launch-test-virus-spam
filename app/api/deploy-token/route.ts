@@ -6,6 +6,7 @@ const FOURCLAW_ORG_API = "https://www.4claw.org/api/v1";
 const MOLTBOOK_API = "https://www.moltbook.com/api/v1";
 const FOURCLAW_FUN_API = "https://api.4claw.fun/api";
 const CLAWNCH_API = "https://clawn.ch/api";
+const SYNTHLAUNCH_API = "https://synthlaunch.fun/api";
 
 interface TokenData {
   name: string;
@@ -26,6 +27,9 @@ interface TokenData {
 
 // ── Build launch command content ────────────────────────────────
 function buildPostContent(launchpad: string, token: TokenData, kibuPlatform?: string): string {
+  // SynthLaunch uses its own format
+  if (launchpad === "synthlaunch") return buildSynthLaunchContent(token);
+
   const cmd =
     launchpad === "4claw"
       ? "!4clawd"
@@ -52,7 +56,24 @@ function buildPostContent(launchpad: string, token: TokenData, kibuPlatform?: st
   return post;
 }
 
+function buildSynthLaunchContent(token: TokenData): string {
+  const jsonObj: Record<string, string | number> = {
+    name: token.name,
+    symbol: token.symbol,
+    description: token.description || `$${token.symbol} token`,
+    image: token.image || "",
+    wallet: token.wallet,
+  };
+  if (token.tax) jsonObj.taxRate = token.tax * 100; // basis points
+  if (token.website) jsonObj.website = token.website;
+  if (token.twitter) jsonObj.twitter = token.twitter;
+  return `!synthlaunch\n\`\`\`json\n${JSON.stringify(jsonObj, null, 2)}\n\`\`\``;
+}
+
 function buildMoltbookContent(launchpad: string, token: TokenData, kibuPlatform?: string): string {
+  // SynthLaunch uses its own format for Moltbook posts
+  if (launchpad === "synthlaunch") return buildSynthLaunchContent(token);
+
   const cmd =
     launchpad === "4claw"
       ? "!4clawd"
@@ -390,6 +411,29 @@ async function triggerLaunchpad(
       : `4claw trigger: ${d?.error || d?.message || res.status}`;
   }
 
+  // SynthLaunch: POST /api/launch with moltbook_key + post_id
+  if (launchpad === "synthlaunch" && source === "moltbook") {
+    try {
+      const res = await fetch(`${SYNTHLAUNCH_API}/launch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ moltbook_key: apiKey, post_id: postId }),
+      });
+      const d = await res.json();
+      if (d.success) {
+        return `SynthLaunch deployed! Token: ${d.token_address || "pending"} | Flap: ${d.flap_url || ""}`;
+      }
+      return `SynthLaunch: ${d?.error || res.status}`;
+    } catch (e) {
+      return `SynthLaunch trigger error: ${String(e)}`;
+    }
+  }
+
+  // For SynthLaunch via non-moltbook agents, post content must still get picked up
+  if (launchpad === "synthlaunch") {
+    return "SynthLaunch auto-scans Moltbook posts with !synthlaunch. Token will deploy within 1 minute.";
+  }
+
   if (launchpad === "clawnch" && source === "moltbook") {
     const res = await fetch(`${CLAWNCH_API}/launch`, {
       method: "POST",
@@ -664,7 +708,9 @@ export async function POST(request: Request) {
             ? "clawnch"
             : launchpad === "molaunch"
               ? "molaunch"
-              : "crypto";
+              : launchpad === "synthlaunch"
+                ? "synthlaunch"
+                : "crypto";
       log.push(`Posting to Moltbook (m/${submolt})...`);
 
       const res = await fetch(`${MOLTBOOK_API}/posts`, {

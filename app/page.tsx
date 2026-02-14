@@ -8,6 +8,7 @@ import { LaunchForm } from "@/components/launch-form";
 import { RecentLaunches } from "@/components/recent-launches";
 import { AutoLaunchPanel } from "@/components/auto-launch";
 import { DeployedTokensBox } from "@/components/deployed-tokens-box";
+import { HealthCheck } from "@/components/health-check";
 
 export interface TokenPrefill {
   name: string;
@@ -70,6 +71,11 @@ export default function Page() {
           </div>
         </div>
 
+        {/* System Status / Health Check -- Separate section */}
+        <section className="mt-8 border-t border-border pt-6">
+          <HealthCheck />
+        </section>
+
         {/* Footer */}
         <footer className="mt-10 border-t border-border pt-5 pb-6">
           <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
@@ -78,11 +84,11 @@ export default function Page() {
                 4C
               </div>
               <span className="text-xs text-muted-foreground">
-                Multi-Platform Launchpad v3.1
+                Multi-Platform Launchpad v4.0
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
-              <span>4claw (BSC) | Kibu (BSC/Base) | Clawnch (Base) | Molaunch (SOL) | FourClaw.Fun (BSC/SOL)</span>
+              <span>4claw | Kibu | Clawnch | Molaunch | FourClaw.Fun | SynthLaunch</span>
               <span className="hidden sm:inline">|</span>
               {[
                 { label: "4claw Docs", url: "https://4claw.fun" },
@@ -90,6 +96,7 @@ export default function Page() {
                 { label: "Clawnch Docs", url: "https://clawn.ch" },
                 { label: "Molaunch Docs", url: "https://bags.fourclaw.fun" },
                 { label: "FourClaw.Fun", url: "https://fourclaw.fun" },
+                { label: "SynthLaunch", url: "https://synthlaunch.fun" },
               ].map((link) => (
                 <a
                   key={link.label}
