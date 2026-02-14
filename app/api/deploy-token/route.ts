@@ -7,6 +7,7 @@ const MOLTBOOK_API = "https://www.moltbook.com/api/v1";
 const FOURCLAW_FUN_API = "https://api.4claw.fun/api";
 const CLAWNCH_API = "https://clawn.ch/api";
 const SYNTHLAUNCH_API = "https://synthlaunch.fun/api";
+const BAPBOOK_API = "https://app-ookzumda.fly.dev";
 
 interface TokenData {
   name: string;
@@ -595,10 +596,12 @@ export async function POST(request: Request) {
       });
     }
 
-    // ── CLAWSTR AGENT ── (Uses Moltx registration + EVM wallet)
+    // ── CLAWSTR AGENT ── (Nostr-based; posts to Moltx where Clawstr indexes it)
+    // Clawstr is a Nostr-protocol social network with no HTTP API.
+    // It auto-scans Moltx posts, so we post via Moltx and trigger as "clawstr".
     if (agent === "clawstr") {
       if (!apiKey) {
-        log.push(`Registering "${token.name}" agent on Moltx (for Clawstr relay)...`);
+        log.push(`Registering "${token.name}" agent on Moltx (Clawstr relay)...`);
         const reg = await registerMoltxAgent(token.name, token.symbol);
         apiKey = reg.apiKey;
         agentName = reg.agentName;
@@ -610,22 +613,22 @@ export async function POST(request: Request) {
 
       await new Promise((r) => setTimeout(r, 1500));
 
-      // Engage with feed before posting (Moltx requirement)
       await engageMoltxFeed(apiKey, log);
 
       const content = buildPostContent(launchpad, token, kibuPlatform);
-      log.push("Posting to Moltx (Clawstr auto-scans)...");
+      log.push("Posting via Clawstr (Moltx relay)...");
       const { postId } = await postToMoltxWithRetry(apiKey, content, chainId, log, evmWalletRef);
-      log.push(`Posted! ID: ${postId}`);
+      log.push(`Clawstr post relayed! ID: ${postId}`);
 
-      const trigger = await triggerLaunchpad(launchpad, "moltx", postId, apiKey);
+      // Trigger launchpad as "clawstr" source, NOT "moltx"
+      const trigger = await triggerLaunchpad(launchpad, "clawstr", postId, apiKey);
       log.push(trigger);
 
       return NextResponse.json({
         success: true,
-        message: `Posted via Clawstr (Moltx). ${trigger}`,
+        message: `Posted via Clawstr. ${trigger}`,
         postId,
-        postUrl: `https://moltx.io/post/${postId}`,
+        postUrl: `https://clawstr.com`,
         autoScanned: true,
         log,
         tokenName: token.name,
@@ -747,6 +750,67 @@ export async function POST(request: Request) {
         log,
         tokenName: token.name,
         tokenSymbol: token.symbol,
+      });
+    }
+
+    // ── BAPBOOK AGENT ── (Reddit-style social for AI agents on BNB)
+    if (agent === "bapbook") {
+      // Step 1: Register agent on BapBook
+      log.push(`Registering "${token.name}" agent on BapBook...`);
+      const regRes = await fetch(`${BAPBOOK_API}/api/webhook`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "register",
+          agent_name: `${token.name.replace(/[^A-Za-z0-9_ ]/g, "")}_${Date.now().toString(36)}`,
+          twitter_handle: token.twitter || `@${token.symbol?.toLowerCase() || "token"}`,
+        }),
+      });
+      const regData = await regRes.json();
+      if (!regRes.ok || !regData.success) {
+        throw new Error(regData?.message || regData?.error || `BapBook register failed (${regRes.status})`);
+      }
+      const bapAgentId = regData.agent_id;
+      const bapApiKey = regData.api_key;
+      log.push(`BapBook agent registered! ID: ${bapAgentId}`);
+
+      // Step 2: Post the launch command to "tokens" subbort
+      const content = buildPostContent(launchpad, token, kibuPlatform);
+      log.push("Posting to BapBook (m/tokens)...");
+
+      const postRes = await fetch(`${BAPBOOK_API}/api/webhook`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "post",
+          agent_id: String(bapAgentId),
+          api_key: bapApiKey,
+          title: `Launching $${token.symbol} on ${launchpad}!`,
+          content,
+          subbort: "tokens",
+        }),
+      });
+      const postData = await postRes.json();
+      if (!postRes.ok || !postData.success) {
+        throw new Error(postData?.message || postData?.error || `BapBook post failed (${postRes.status})`);
+      }
+      const postId = postData.post_id || postData.id || "unknown";
+      log.push(`Posted to BapBook! Post ID: ${postId}`);
+
+      // Step 3: Trigger launchpad (BapBook posts are scanned by launchpads)
+      const trigger = await triggerLaunchpad(launchpad, "bapbook", postId, bapApiKey);
+      log.push(trigger);
+
+      return NextResponse.json({
+        success: true,
+        message: `Posted via BapBook. ${trigger}`,
+        postId,
+        postUrl: `https://bapbook.com`,
+        autoScanned: true,
+        log,
+        tokenName: token.name,
+        tokenSymbol: token.symbol,
+        credentials: { apiKey: bapApiKey, agentName: `bapbook_${bapAgentId}` },
       });
     }
 

@@ -12,7 +12,7 @@ import { addDeployedToken } from "@/components/deployed-tokens-box";
 const DEFAULT_ADMIN = "0x9c6111C77CBE545B9703243F895EB593f2721C7a";
 
 type Launchpad = "4claw" | "kibu" | "clawnch" | "molaunch" | "fourclaw_fun" | "synthlaunch";
-type Agent = "moltx" | "4claw_org" | "moltbook" | "clawstr" | "direct_api";
+type Agent = "moltx" | "4claw_org" | "moltbook" | "clawstr" | "direct_api" | "bapbook";
 
 interface AutoToken {
   name: string;
@@ -45,6 +45,7 @@ const AGENT_OPTIONS: { id: Agent; label: string }[] = [
   { id: "moltx", label: "Moltx" },
   { id: "clawstr", label: "Clawstr" },
   { id: "direct_api", label: "Direct API" },
+  { id: "bapbook", label: "BapBook" },
 ];
 
 interface AutoLaunchPanelProps {
@@ -115,31 +116,39 @@ export function AutoLaunchPanel({ instanceId = 1, instanceLabel }: AutoLaunchPan
     }
   };
 
-  // Fetch a matching image for the token by name/symbol
+  // Fetch a UNIQUE image for each token by name/symbol
   const fetchTokenImage = async (tokenName: string, tokenSymbol: string): Promise<string> => {
-    // 1) Try search-image API (CoinGecko, DuckDuckGo, Serper)
+    const uniqueSeed = `${tokenName}_${tokenSymbol}_${Date.now()}`;
+
+    // 1) Try search-image API (CoinGecko, DuckDuckGo, Serper) -- specific to this token
     try {
       const r = await fetch("/api/search-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: tokenName, symbol: tokenSymbol }),
+        body: JSON.stringify({ name: tokenName, symbol: tokenSymbol, seed: uniqueSeed }),
       });
       const d = await r.json();
       if (d.url && d.url.startsWith("http")) return d.url;
     } catch { /* fall through */ }
 
-    // 2) Try AI-generated logo via Pollinations
+    // 2) Try AI-generated logo via Pollinations with unique seed per token
     try {
       const r = await fetch("/api/generate-logo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: tokenName, symbol: tokenSymbol, provider: "pollinations" }),
+        body: JSON.stringify({
+          name: tokenName,
+          symbol: tokenSymbol,
+          provider: "pollinations",
+          seed: uniqueSeed,
+        }),
       });
       const d = await r.json();
       if (d.url && d.url.startsWith("http")) return d.url;
     } catch { /* fall through */ }
 
-    return "";
+    // 3) Fallback: DiceBear with unique seed (always works, always unique)
+    return `https://api.dicebear.com/7.x/identicon/png?seed=${encodeURIComponent(uniqueSeed)}&size=256`;
   };
 
   const deployToken = async (token: AutoToken): Promise<boolean> => {
