@@ -116,57 +116,56 @@ export function AutoLaunchPanel({ instanceId = 1, instanceLabel }: AutoLaunchPan
     }
   };
 
-  // Fetch a UNIQUE image for each token by name/symbol
-  const fetchTokenImage = async (tokenName: string, tokenSymbol: string): Promise<string> => {
-    const uniqueSeed = `${tokenName}_${tokenSymbol}_${Date.now()}`;
+  // Check if a URL is a real image link (ends with .png, .jpg, .jpeg, .webp, or has image content-type params)
+  const isRealImageUrl = (url: string): boolean => {
+    if (!url || !url.startsWith("http")) return false;
+    // Reject AI-generated / Pollinations URLs
+    if (url.includes("pollinations.ai")) return false;
+    if (url.includes("dicebear.com")) return false;
+    // Must look like a real image
+    const lower = url.toLowerCase();
+    if (lower.match(/\.(png|jpg|jpeg|webp|gif|svg)(\?|$)/)) return true;
+    // Also accept CDN URLs that serve images (CoinGecko, DexScreener, etc.)
+    if (lower.includes("coingecko.com")) return true;
+    if (lower.includes("dexscreener.com")) return true;
+    if (lower.includes("geckoterminal.com")) return true;
+    if (lower.includes("assets.")) return true;
+    if (lower.includes("/images/")) return true;
+    if (lower.includes("/logo")) return true;
+    return false;
+  };
 
-    // 1) Try search-image API (CoinGecko, DuckDuckGo, Serper) -- specific to this token
+  // Search for a real .png/.jpg image for a token (NO AI generation)
+  const fetchTokenImage = async (tokenName: string, tokenSymbol: string): Promise<string> => {
+    // Only try search-image API (CoinGecko, DuckDuckGo, Serper) for real images
     try {
       const r = await fetch("/api/search-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: tokenName, symbol: tokenSymbol, seed: uniqueSeed }),
+        body: JSON.stringify({ name: tokenName, symbol: tokenSymbol }),
       });
       const d = await r.json();
-      if (d.url && d.url.startsWith("http")) return d.url;
+      if (d.url && isRealImageUrl(d.url)) return d.url;
     } catch { /* fall through */ }
 
-    // 2) Try AI-generated logo via Pollinations with unique seed per token
-    try {
-      const r = await fetch("/api/generate-logo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: tokenName,
-          symbol: tokenSymbol,
-          provider: "pollinations",
-          seed: uniqueSeed,
-        }),
-      });
-      const d = await r.json();
-      if (d.url && d.url.startsWith("http")) return d.url;
-    } catch { /* fall through */ }
-
-    // 3) Fallback: DiceBear with unique seed (always works, always unique)
-    return `https://api.dicebear.com/7.x/identicon/png?seed=${encodeURIComponent(uniqueSeed)}&size=256`;
+    // No real image found -- return empty (caller will skip this token)
+    return "";
   };
 
   const deployToken = async (token: AutoToken): Promise<boolean> => {
     const desc = token.description || (await generateDesc(token.name, token.symbol));
 
-    // ── Fix: always ensure we have a proper image matching the token ──
+    // Only use real image URLs (.png, .jpg, etc.) -- NO AI-generated images
     let tokenImage = token.imageUrl || "";
-    // If no image, or image is a generic placeholder / invalid, fetch a real one
-    if (!tokenImage || !tokenImage.startsWith("http") || tokenImage.includes("placeholder") || tokenImage.includes("missing")) {
-      addLog(`Searching image for ${token.name} ($${token.symbol})...`);
+    // Validate the source image is a real image URL
+    if (!isRealImageUrl(tokenImage)) {
+      // Try to find a real image via search
       tokenImage = await fetchTokenImage(token.name, token.symbol);
-      if (tokenImage) {
-        addLog(`Found image for ${token.symbol}: ${tokenImage.substring(0, 60)}...`, "success");
-      } else {
-        addLog(`No image found for ${token.symbol} -- launching without image`);
+      if (!tokenImage) {
+        // No real image available -- skip this token entirely
+        addLog(`Skip ${token.symbol}: no real image found (.png/.jpg)`, "skip");
+        return false;
       }
-    } else {
-      addLog(`Using source image for ${token.symbol}`);
     }
 
     // Auto-lookup socials for tokens if enabled and not already provided
