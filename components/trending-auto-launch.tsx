@@ -12,7 +12,8 @@ const DEFAULT_ADMIN = "0x9c6111C77CBE545B9703243F895EB593f2721C7a";
 
 type Launchpad = "4claw" | "kibu" | "clawnch" | "molaunch" | "fourclaw_fun" | "synthlaunch";
 type Agent = "moltx" | "4claw_org" | "moltbook" | "clawstr" | "direct_api" | "bapbook";
-type TrendSource = "all" | "google" | "twitter" | "coingecko" | "dexscreener";
+type TrendSource = "all" | "google" | "twitter" | "coingecko" | "dexscreener" | "geckoterminal";
+type TrendFilter = "trending" | "volume" | "gainers" | "new";
 
 interface TrendItem {
   name: string;
@@ -20,6 +21,8 @@ interface TrendItem {
   imageUrl: string;
   source: string;
   description?: string;
+  volume24h?: number;
+  priceChange?: number;
 }
 
 interface LogEntry {
@@ -52,6 +55,14 @@ const SOURCE_OPTIONS: { id: TrendSource; label: string; color: string }[] = [
   { id: "twitter", label: "Twitter / X", color: "bg-foreground/10 text-foreground" },
   { id: "coingecko", label: "CoinGecko", color: "bg-[#8DC63F]/20 text-[#8DC63F]" },
   { id: "dexscreener", label: "DexScreener", color: "bg-[#1CC9FF]/20 text-[#1CC9FF]" },
+  { id: "geckoterminal", label: "GeckoTerminal", color: "bg-[#FF6B35]/20 text-[#FF6B35]" },
+];
+
+const FILTER_OPTIONS: { id: TrendFilter; label: string; desc: string }[] = [
+  { id: "trending", label: "Trending", desc: "Default hot/trending" },
+  { id: "volume", label: "Top Volume", desc: "Highest 24h volume" },
+  { id: "gainers", label: "Top Gainers", desc: "Biggest 24h price increase" },
+  { id: "new", label: "New Tokens", desc: "Recently listed tokens" },
 ];
 
 export function TrendingAutoLaunch() {
@@ -60,6 +71,7 @@ export function TrendingAutoLaunch() {
   const [agent, setAgent] = useState<Agent>("4claw_org");
   const [chain, setChain] = useState("bsc");
   const [trendSource, setTrendSource] = useState<TrendSource>("all");
+  const [trendFilter, setTrendFilter] = useState<TrendFilter>("trending");
   const [delaySeconds, setDelaySeconds] = useState("30");
   const [maxLaunches, setMaxLaunches] = useState("10");
   const [useCustomWallet, setUseCustomWallet] = useState(false);
@@ -84,10 +96,17 @@ export function TrendingAutoLaunch() {
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-  // Fetch trending topics
+  // Fetch trending topics with filter
   const fetchTrending = async (): Promise<TrendItem[]> => {
-    const r = await fetch(`/api/auto-launch/fetch-trending?source=${trendSource}`);
+    const r = await fetch(`/api/auto-launch/fetch-trending?source=${trendSource}&filter=${trendFilter}&limit=25`);
     const d = await r.json();
+    // Log source status
+    if (d.sources) {
+      const statuses = Object.entries(d.sources as Record<string, { count: number; error?: string }>)
+        .map(([k, v]) => `${k}: ${v.count}${v.error ? ` (err)` : ""}`)
+        .join(", ");
+      addLog(`Sources: ${statuses}`);
+    }
     return d.items || [];
   };
 
@@ -271,6 +290,29 @@ export function TrendingAutoLaunch() {
           </div>
         </div>
 
+        {/* Filter (for CoinGecko / DexScreener / GeckoTerminal) */}
+        <div>
+          <Label className="text-[10px] text-muted-foreground mb-1 block">Filter</Label>
+          <div className="flex flex-wrap gap-1">
+            {FILTER_OPTIONS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setTrendFilter(f.id)}
+                disabled={running}
+                title={f.desc}
+                className={`rounded px-2 py-1 text-[10px] font-medium transition-colors ${
+                  trendFilter === f.id
+                    ? "bg-[#F59E0B]/20 text-[#F59E0B] border border-[#F59E0B]/30"
+                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                } disabled:opacity-50`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Launchpad + Agent */}
         <div className="grid grid-cols-2 gap-2">
           <div>
@@ -408,12 +450,17 @@ export function TrendingAutoLaunch() {
           <div className="rounded border border-border bg-background/50 p-2">
             <p className="text-[9px] text-muted-foreground mb-1.5 font-medium">Preview: {preview.length} trending topics</p>
             <div className="flex flex-wrap gap-1.5">
-              {preview.slice(0, 12).map((item, i) => (
+              {preview.slice(0, 15).map((item, i) => (
                 <div key={`${item.symbol}-${i}`} className="flex items-center gap-1 rounded bg-secondary px-1.5 py-0.5">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={item.imageUrl} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
                   <span className="text-[9px] font-medium text-card-foreground">${item.symbol}</span>
-                  <span className="text-[8px] text-muted-foreground">({item.source})</span>
+                  <span className="text-[8px] text-muted-foreground">{item.source}</span>
+                  {item.priceChange && item.priceChange !== 0 ? (
+                    <span className={`text-[8px] ${item.priceChange > 0 ? "text-chart-3" : "text-destructive"}`}>
+                      {item.priceChange > 0 ? "+" : ""}{item.priceChange.toFixed(1)}%
+                    </span>
+                  ) : null}
                 </div>
               ))}
             </div>

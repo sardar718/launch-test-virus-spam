@@ -11,6 +11,7 @@ import { DeployedTokensBox } from "@/components/deployed-tokens-box";
 import { HealthCheck } from "@/components/health-check";
 import { AgentPostsFeed } from "@/components/agent-posts-feed";
 import { TrendingAutoLaunch } from "@/components/trending-auto-launch";
+import { CloudAutoLaunch } from "@/components/cloud-auto-launch";
 
 export interface TokenPrefill {
   name: string;
@@ -70,6 +71,7 @@ export default function Page() {
             <AutoLaunchPanel instanceId={2} instanceLabel="Auto-Launch #2" />
             <AutoLaunchPanel instanceId={3} instanceLabel="Auto-Launch #3" />
             <TrendingAutoLaunch />
+            <CloudAutoLaunch />
             <DeployedTokensBox />
           </div>
         </div>
