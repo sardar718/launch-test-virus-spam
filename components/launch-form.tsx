@@ -32,8 +32,8 @@ import { addDeployedToken } from "@/components/deployed-tokens-box";
 // ─── Platform definitions ─────────────────────────────────────
 const DEFAULT_ADMIN = "0x9c6111C77CBE545B9703243F895EB593f2721C7a";
 
-type LaunchpadId = "4claw" | "kibu" | "clawnch" | "molaunch" | "fourclaw_fun";
-type AgentId = "moltx" | "moltbook" | "4claw_org" | "clawstr" | "direct_api";
+type LaunchpadId = "4claw" | "kibu" | "clawnch" | "molaunch" | "fourclaw_fun" | "synthlaunch";
+type AgentId = "moltx" | "moltbook" | "4claw_org" | "clawstr" | "direct_api" | "bapbook";
 
 interface LaunchpadInfo {
   label: string;
@@ -62,7 +62,7 @@ const LAUNCHPADS: Record<LaunchpadId, LaunchpadInfo> = {
     chains: ["bsc"],
     fee: "0 BNB",
     rateLimit: "1/24h",
-    agents: ["moltx", "moltbook"],
+    agents: ["moltx", "moltbook", "bapbook"],
     supportsTax: true,
     docUrl: "https://4claw.fun/skill.md",
     color: "text-primary",
@@ -73,7 +73,7 @@ const LAUNCHPADS: Record<LaunchpadId, LaunchpadInfo> = {
     chains: ["bsc", "base"],
     fee: "Free",
     rateLimit: "5/24h",
-    agents: ["moltx", "moltbook", "4claw_org", "clawstr"],
+    agents: ["moltx", "moltbook", "4claw_org", "clawstr", "bapbook"],
     supportsTax: false,
     docUrl: "https://kibu.bot/skill-bsc.md",
     color: "text-chart-3",
@@ -84,7 +84,7 @@ const LAUNCHPADS: Record<LaunchpadId, LaunchpadInfo> = {
     chains: ["base"],
     fee: "Free",
     rateLimit: "1/24h",
-    agents: ["moltx", "moltbook", "4claw_org", "clawstr"],
+    agents: ["moltx", "moltbook", "4claw_org", "clawstr", "bapbook"],
     supportsTax: false,
     docUrl: "https://clawn.ch/skill",
     color: "text-[#0052FF]",
@@ -95,7 +95,7 @@ const LAUNCHPADS: Record<LaunchpadId, LaunchpadInfo> = {
     chains: ["solana"],
     fee: "Free",
     rateLimit: "1/24h",
-    agents: ["moltx", "moltbook"],
+    agents: ["moltx", "moltbook", "bapbook"],
     supportsTax: false,
     docUrl: "https://bags.fourclaw.fun/skill.md",
     color: "text-[#9945FF]",
@@ -106,10 +106,21 @@ const LAUNCHPADS: Record<LaunchpadId, LaunchpadInfo> = {
     chains: ["bsc", "solana"],
     fee: "Free (20% platform)",
     rateLimit: "10/hour",
-    agents: ["direct_api", "moltx", "moltbook", "4claw_org", "clawstr"],
+    agents: ["direct_api", "moltx", "moltbook", "4claw_org", "clawstr", "bapbook"],
     supportsTax: true,
     docUrl: "https://fourclaw.fun/api-skill.md",
     color: "text-[#F59E0B]",
+  },
+  synthlaunch: {
+    label: "SynthLaunch",
+    chain: "bsc",
+    chains: ["bsc"],
+    fee: "Free",
+    rateLimit: "1/24h",
+    agents: ["moltbook", "moltx", "4claw_org", "clawstr", "bapbook"],
+    supportsTax: true,
+    docUrl: "https://synthlaunch.fun/docs",
+    color: "text-[#00D4AA]",
   },
 };
 
@@ -144,8 +155,15 @@ const AGENTS: Record<AgentId, AgentInfo> = {
   },
   direct_api: {
     label: "Direct API",
-    note: "No agent needed",
+    note: "FourClaw.Fun only",
     autoRegister: false,
+    needsKey: false,
+    keyPlaceholder: "",
+  },
+  bapbook: {
+    label: "BapBook",
+    note: "Reddit-style social for AI agents (auto-register)",
+    autoRegister: true,
     needsKey: false,
     keyPlaceholder: "",
   },
@@ -311,7 +329,7 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
     const available = LAUNCHPADS[id].agents;
     if (!available.includes(agent)) setAgent(available[0]);
     setTokenChain(LAUNCHPADS[id].chain);
-    if (id !== "4claw" && id !== "fourclaw_fun") setEnableTax(false);
+    if (id !== "4claw" && id !== "fourclaw_fun" && id !== "synthlaunch") setEnableTax(false);
     setDeployResult(null);
   }
 
@@ -358,6 +376,20 @@ export function LaunchForm({ prefill }: LaunchFormProps) {
         obj.vaultType = "split";
       }
       return `POST https://fourclaw.fun/api/launch\n\n${JSON.stringify(obj, null, 2)}`;
+    }
+    // SynthLaunch uses Moltbook post with !synthlaunch + JSON config
+    if (launchpad === "synthlaunch") {
+      const obj: Record<string, unknown> = {
+        name,
+        symbol: symbol.toUpperCase(),
+        description: description || `$${symbol.toUpperCase()} token`,
+        image: imageUrl || "",
+        wallet: activeWallet,
+      };
+      if (enableTax) obj.taxRate = tax * 100;
+      if (website) obj.website = website;
+      if (twitter) obj.twitter = twitter;
+      return `!synthlaunch\n\`\`\`json\n${JSON.stringify(obj, null, 2)}\n\`\`\``;
     }
     const cmd = launchpad === "4claw" ? "!4clawd" : launchpad === "kibu" ? "!kibu" : launchpad === "molaunch" ? "!molaunch" : "!clawnch";
     let post = `${cmd}\nname: ${name}\nsymbol: ${symbol.toUpperCase()}\nwallet: ${activeWallet}`;

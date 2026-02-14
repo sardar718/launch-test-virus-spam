@@ -11,8 +11,8 @@ import { addDeployedToken } from "@/components/deployed-tokens-box";
 
 const DEFAULT_ADMIN = "0x9c6111C77CBE545B9703243F895EB593f2721C7a";
 
-type Launchpad = "4claw" | "kibu" | "clawnch" | "molaunch" | "fourclaw_fun";
-type Agent = "moltx" | "4claw_org" | "moltbook" | "clawstr" | "direct_api";
+type Launchpad = "4claw" | "kibu" | "clawnch" | "molaunch" | "fourclaw_fun" | "synthlaunch";
+type Agent = "moltx" | "4claw_org" | "moltbook" | "clawstr" | "direct_api" | "bapbook";
 
 interface AutoToken {
   name: string;
@@ -37,6 +37,7 @@ const LP_OPTIONS: { id: Launchpad; label: string; chains: string[] }[] = [
   { id: "clawnch", label: "Clawnch", chains: ["base"] },
   { id: "molaunch", label: "Molaunch", chains: ["solana"] },
   { id: "fourclaw_fun", label: "FourClaw.Fun", chains: ["bsc", "solana"] },
+  { id: "synthlaunch", label: "SynthLaunch", chains: ["bsc"] },
 ];
 
 const AGENT_OPTIONS: { id: Agent; label: string }[] = [
@@ -44,6 +45,7 @@ const AGENT_OPTIONS: { id: Agent; label: string }[] = [
   { id: "moltx", label: "Moltx" },
   { id: "clawstr", label: "Clawstr" },
   { id: "direct_api", label: "Direct API" },
+  { id: "bapbook", label: "BapBook" },
 ];
 
 interface AutoLaunchPanelProps {
@@ -114,8 +116,55 @@ export function AutoLaunchPanel({ instanceId = 1, instanceLabel }: AutoLaunchPan
     }
   };
 
+  // Check if a URL is a real image link (.png, .jpg, .webp) or from known image CDNs
+  const isRealImageUrl = (url: string): boolean => {
+    if (!url || !url.startsWith("http")) return false;
+    // Reject AI-generated URLs
+    if (url.includes("pollinations.ai")) return false;
+    if (url.includes("dicebear.com")) return false;
+    const lower = url.toLowerCase();
+    // Direct image extensions
+    if (lower.match(/\.(png|jpg|jpeg|webp|gif|svg)(\?|$)/)) return true;
+    // Known image CDNs
+    if (lower.includes("coin-images.coingecko.com")) return true;
+    if (lower.includes("assets.coingecko.com")) return true;
+    if (lower.includes("assets.geckoterminal.com")) return true;
+    if (lower.includes("wsrv.nl")) return true; // proxy CDN
+    return false;
+  };
+
+  // Search for a real .png/.jpg image for a token (NO AI generation)
+  const fetchTokenImage = async (tokenName: string, tokenSymbol: string): Promise<string> => {
+    // Only try search-image API (CoinGecko, DuckDuckGo, Serper) for real images
+    try {
+      const r = await fetch("/api/search-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: tokenName, symbol: tokenSymbol }),
+      });
+      const d = await r.json();
+      if (d.url && isRealImageUrl(d.url)) return d.url;
+    } catch { /* fall through */ }
+
+    // No real image found -- return empty (caller will skip this token)
+    return "";
+  };
+
   const deployToken = async (token: AutoToken): Promise<boolean> => {
     const desc = token.description || (await generateDesc(token.name, token.symbol));
+
+    // Only use real image URLs (.png, .jpg, etc.) -- NO AI-generated images
+    let tokenImage = token.imageUrl || "";
+    // Validate the source image is a real image URL
+    if (!isRealImageUrl(tokenImage)) {
+      // Try to find a real image via search
+      tokenImage = await fetchTokenImage(token.name, token.symbol);
+      if (!tokenImage) {
+        // No real image available -- skip this token entirely
+        addLog(`Skip ${token.symbol}: no real image found (.png/.jpg)`, "skip");
+        return false;
+      }
+    }
 
     // Auto-lookup socials for tokens if enabled and not already provided
     // Only use VERIFIED results -- never add fake/non-existent accounts
@@ -150,7 +199,7 @@ export function AutoLaunchPanel({ instanceId = 1, instanceLabel }: AutoLaunchPan
         symbol: token.symbol.toUpperCase(),
         wallet: activeWallet,
         description: desc,
-        image: token.imageUrl || "",
+        image: tokenImage,
         website: tokenWebsite,
         twitter: tokenTwitter,
         chain,
@@ -533,7 +582,17 @@ export function AutoLaunchPanel({ instanceId = 1, instanceLabel }: AutoLaunchPan
         {/* Log -- scroll stays WITHIN this container, no page pull */}
         {logs.length > 0 && (
           <div className="max-h-48 overflow-y-auto rounded bg-background/80 border border-border p-2 font-mono text-[9px] space-y-0.5">
-            {logs.map((l, i) => (
+            {logs
+              .filter((l) => {
+                const m = l.msg;
+                // Hide noisy internal messages from display (still tracked in state)
+                if (m.startsWith("Searching image for ")) return false;
+                if (m.startsWith("Using source image for ")) return false;
+                if (m.startsWith("Source:") && m.includes("Found")) return false;
+                if (m.startsWith("Skip ") && m.includes("already launched")) return false;
+                return true;
+              })
+              .map((l, i) => (
               <div
                 key={`${l.time}-${i}`}
                 className={`flex gap-1.5 ${
