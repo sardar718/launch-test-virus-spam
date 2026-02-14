@@ -1,7 +1,7 @@
 "use client";
 
 import useSWR from "swr";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
@@ -9,11 +9,12 @@ const fetcher = (url: string) => fetch(url).then((r) => r.json());
 interface CheckResult {
   id: string;
   label: string;
-  category: "launchpad" | "agent" | "data" | "chain";
+  category: "launchpad" | "agent" | "data" | "chain" | "image";
   status: "online" | "offline" | "slow" | "checking";
   latency: number;
   message: string;
   url: string;
+  siteUrl: string;
 }
 
 interface HealthData {
@@ -26,10 +27,11 @@ const CATEGORY_LABELS: Record<string, string> = {
   launchpad: "Launchpads",
   agent: "Posting Agents",
   data: "Data Sources",
+  image: "Image Providers",
   chain: "Chain RPCs",
 };
 
-const CATEGORY_ORDER = ["launchpad", "agent", "data", "chain"];
+const CATEGORY_ORDER = ["launchpad", "agent", "data", "image", "chain"];
 
 function StatusDot({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -109,7 +111,7 @@ export function HealthCheck() {
 
       {/* Checks by category */}
       {checks.length > 0 && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {CATEGORY_ORDER.map((cat) => {
             const items = checks.filter((c) => c.category === cat);
             if (items.length === 0) return null;
@@ -133,11 +135,17 @@ export function HealthCheck() {
                       key={check.id}
                       className="flex items-center justify-between rounded-md bg-secondary/50 px-2.5 py-1.5"
                     >
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
                         <StatusDot status={check.status} />
-                        <span className="text-xs font-medium text-card-foreground">
+                        <a
+                          href={check.siteUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group flex items-center gap-1 text-xs font-medium text-card-foreground hover:text-primary transition-colors truncate"
+                        >
                           {check.label}
-                        </span>
+                          <ExternalLink className="h-2.5 w-2.5 opacity-0 group-hover:opacity-100 shrink-0 transition-opacity" />
+                        </a>
                       </div>
                       <div className="flex items-center gap-1.5">
                         {check.status === "online" && (

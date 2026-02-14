@@ -9,6 +9,7 @@ import { RecentLaunches } from "@/components/recent-launches";
 import { AutoLaunchPanel } from "@/components/auto-launch";
 import { DeployedTokensBox } from "@/components/deployed-tokens-box";
 import { HealthCheck } from "@/components/health-check";
+import { AgentPostsFeed } from "@/components/agent-posts-feed";
 
 export interface TokenPrefill {
   name: string;
@@ -76,6 +77,11 @@ export default function Page() {
           <HealthCheck />
         </section>
 
+        {/* Live Launch Posts -- Agent feed scanner */}
+        <section className="mt-6">
+          <AgentPostsFeed />
+        </section>
+
         {/* Footer */}
         <footer className="mt-10 border-t border-border pt-5 pb-6">
           <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
@@ -97,6 +103,7 @@ export default function Page() {
                 { label: "Molaunch Docs", url: "https://bags.fourclaw.fun" },
                 { label: "FourClaw.Fun", url: "https://fourclaw.fun" },
                 { label: "SynthLaunch", url: "https://synthlaunch.fun" },
+                { label: "BapBook", url: "https://bapbook.com" },
               ].map((link) => (
                 <a
                   key={link.label}

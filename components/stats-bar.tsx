@@ -11,8 +11,8 @@ const stats = [
   },
   {
     label: "Agents",
-    value: "5",
-    description: "Moltx / Moltbook / 4claw.org / Clawstr / Direct API",
+    value: "6",
+    description: "Moltx / Moltbook / 4claw.org / Clawstr / BapBook / Direct API",
     icon: Bot,
   },
   {

@@ -585,7 +585,17 @@ export function AutoLaunchPanel({ instanceId = 1, instanceLabel }: AutoLaunchPan
         {/* Log -- scroll stays WITHIN this container, no page pull */}
         {logs.length > 0 && (
           <div className="max-h-48 overflow-y-auto rounded bg-background/80 border border-border p-2 font-mono text-[9px] space-y-0.5">
-            {logs.map((l, i) => (
+            {logs
+              .filter((l) => {
+                const m = l.msg;
+                // Hide noisy internal messages from display (still tracked in state)
+                if (m.startsWith("Searching image for ")) return false;
+                if (m.startsWith("Using source image for ")) return false;
+                if (m.startsWith("Source:") && m.includes("Found")) return false;
+                if (m.startsWith("Skip ") && m.includes("already launched")) return false;
+                return true;
+              })
+              .map((l, i) => (
               <div
                 key={`${l.time}-${i}`}
                 className={`flex gap-1.5 ${

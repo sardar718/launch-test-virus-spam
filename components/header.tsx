@@ -10,6 +10,7 @@ const NAV_LINKS = [
   { label: "SynthLaunch", url: "https://synthlaunch.fun", desc: "BSC" },
   { label: "Moltx", url: "https://moltx.io", desc: "Agent" },
   { label: "Moltbook", url: "https://www.moltbook.com", desc: "Agent" },
+  { label: "BapBook", url: "https://bapbook.com", desc: "Agent" },
 ];
 
 export function Header() {
@@ -26,7 +27,7 @@ export function Header() {
               Token Launchpad
             </h1>
             <p className="text-[10px] text-muted-foreground font-mono">
-              6 Launchpads -- 5 Agents -- 3 Chains
+              6 Launchpads -- 6 Agents -- 3 Chains
             </p>
           </div>
         </div>
