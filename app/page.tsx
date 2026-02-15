@@ -13,6 +13,7 @@ import { AgentPostsFeed } from "@/components/agent-posts-feed";
 import { TrendingAutoLaunch } from "@/components/trending-auto-launch";
 import { CloudAutoLaunch } from "@/components/cloud-auto-launch";
 import { GlobalActivityFeed } from "@/components/global-activity-feed";
+import { TokenTracker } from "@/components/token-tracker";
 import { PasswordGate } from "@/components/password-gate";
 
 export interface TokenPrefill {
@@ -79,6 +80,11 @@ export default function Page() {
             <DeployedTokensBox />
           </div>
         </div>
+
+        {/* Token Tracker -- Clawnch Base Chain */}
+        <section className="mt-6">
+          <TokenTracker />
+        </section>
 
         {/* Global Activity Feed */}
         <section className="mt-6">
