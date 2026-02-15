@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Cloud, Zap, Timer, Square, RotateCw, Play } from "lucide-react";
+import { Cloud, Zap, Timer, Square, RotateCw } from "lucide-react";
+import { addDeployedToken } from "@/components/deployed-tokens-box";
 
 const DEFAULT_ADMIN = "0x9c6111C77CBE545B9703243F895EB593f2721C7a";
 
@@ -17,8 +18,10 @@ type Agent = "moltx" | "4claw_org" | "moltbook" | "clawstr" | "direct_api" | "ba
 interface LogEntry { time: string; msg: string; type: "info" | "success" | "error" | "skip"; }
 interface CloudConfig {
   running: boolean; mode: Mode; launchpad: string; agent: string; chain: string;
-  wallet: string; source: string; delaySeconds: number; maxLaunches: number;
-  totalLaunched: number; startedAt: number; stoppedAt?: number; lastRunAt?: number;
+  wallet: string; source: string; kibuPlatform?: string; delaySeconds: number;
+  maxLaunches: number; totalLaunched: number; startedAt: number;
+  stoppedAt?: number; lastRunAt?: number; sourceIndex?: number;
+  launchedSymbols: string[];
 }
 
 const LP_OPTIONS: { id: Launchpad; label: string; chains: string[] }[] = [
@@ -39,13 +42,9 @@ const AGENT_OPTIONS: { id: Agent; label: string }[] = [
   { id: "bapbook", label: "BapBook" },
 ];
 
-interface CloudAutoLaunchProps {
-  instanceId: number;
-  instanceLabel: string;
-}
+interface Props { instanceId: number; instanceLabel: string; }
 
-export function CloudAutoLaunch({ instanceId, instanceLabel }: CloudAutoLaunchProps) {
-  // Config state
+export function CloudAutoLaunch({ instanceId, instanceLabel }: Props) {
   const [launchpad, setLaunchpad] = useState<Launchpad>("kibu");
   const [agent, setAgent] = useState<Agent>("4claw_org");
   const [chain, setChain] = useState("bsc");
@@ -55,192 +54,319 @@ export function CloudAutoLaunch({ instanceId, instanceLabel }: CloudAutoLaunchPr
   const [useCustomWallet, setUseCustomWallet] = useState(false);
   const [customWallet, setCustomWallet] = useState("");
 
-  // Runtime state
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [config, setConfig] = useState<CloudConfig | null>(null);
+  const [running, setRunning] = useState(false);
+  const [mode, setMode] = useState<Mode | null>(null);
+  const [totalLaunched, setTotalLaunched] = useState(0);
   const [loading, setLoading] = useState(false);
 
-  // Both modes can run -- cron runs via Vercel scheduler, edge runs via client polling
-  const [cronRunning, setCronRunning] = useState(false);
-  const [edgeRunning, setEdgeRunning] = useState(false);
-  const edgeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortRef = useRef(false);
+  const sourceRef = useRef(0);
+  const launchedRef = useRef<Set<string>>(new Set());
   const logsEndRef = useRef<HTMLDivElement>(null);
-  const deployingRef = useRef(false);
 
   const activeWallet = useCustomWallet && customWallet.trim() ? customWallet.trim() : DEFAULT_ADMIN;
   const selectedLp = LP_OPTIONS.find((l) => l.id === launchpad);
-  const isAnythingRunning = cronRunning || edgeRunning || config?.running === true;
 
-  // Fetch status from Redis
-  const fetchStatus = useCallback(async () => {
-    try {
-      const r = await fetch(`/api/cloud-launch?id=${instanceId}`);
-      const d = await r.json();
-      if (d.config) {
-        setConfig(d.config);
-        if (d.config.running && d.config.mode === "cron") setCronRunning(true);
-        else setCronRunning(false);
-      } else {
-        setCronRunning(false);
-      }
-      if (d.logs) setLogs(d.logs);
-    } catch { /* ignore */ }
+  // ─── Log helper (local + persisted to Redis) ───
+  const addLog = useCallback((msg: string, type: LogEntry["type"] = "info") => {
+    const time = new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    setLogs((prev) => {
+      const next = [...prev, { time, msg, type }];
+      return next.length > 200 ? next.slice(-200) : next;
+    });
+    setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
+    // Also persist to Redis (fire-and-forget)
+    fetch("/api/cloud-launch/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "log", instanceId, msg, type }),
+    }).catch(() => {});
   }, [instanceId]);
 
-  // Poll status every 4 seconds
-  useEffect(() => {
-    fetchStatus();
-    pollRef.current = setInterval(fetchStatus, 4000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [fetchStatus]);
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-  // Auto-scroll logs
-  useEffect(() => {
-    logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [logs]);
+  // ─── Image validation (same as auto-launch) ───
+  const isRealImageUrl = (url: string): boolean => {
+    if (!url?.startsWith("http")) return false;
+    if (url.includes("pollinations.ai") || url.includes("dicebear.com")) return false;
+    const l = url.toLowerCase();
+    return !!(l.match(/\.(png|jpg|jpeg|webp|gif|svg)(\?|$)/) ||
+      l.includes("coin-images.coingecko.com") || l.includes("assets.coingecko.com") ||
+      l.includes("assets.geckoterminal.com") || l.includes("wsrv.nl"));
+  };
 
-  // Build config body for start
-  const buildStartBody = (mode: Mode) => ({
-    action: "start",
-    instanceId,
-    mode,
-    launchpad,
-    agent: launchpad === "fourclaw_fun" ? "direct_api" : agent,
-    chain,
-    wallet: activeWallet,
-    source: chain,
-    kibuPlatform: launchpad === "kibu" ? kibuPlatform : undefined,
-    delaySeconds: parseInt(delaySeconds) || 60,
-    maxLaunches: parseInt(maxLaunches) || 50,
-  });
-
-  // Trigger one deploy cycle on the server
-  const triggerRun = async (): Promise<boolean> => {
-    if (deployingRef.current) return false;
-    deployingRef.current = true;
+  // ─── Search image (same as auto-launch) ───
+  const fetchTokenImage = async (name: string, symbol: string): Promise<string> => {
     try {
-      const r = await fetch("/api/cloud-launch/run", {
+      const r = await fetch("/api/search-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ instanceId }),
-        signal: AbortSignal.timeout(45000),
+        body: JSON.stringify({ name, symbol }),
       });
       const d = await r.json();
-      if (d.stopped) return false; // max reached
-      return !d.skipped;
+      if (d.url && isRealImageUrl(d.url)) return d.url;
+    } catch { /* */ }
+    return "";
+  };
+
+  // ─── Generate description ───
+  const generateDesc = async (name: string, symbol: string): Promise<string> => {
+    try {
+      const r = await fetch("/api/generate-description", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, symbol }),
+      });
+      return (await r.json()).description || `$${symbol} - ${name}. Community memecoin.`;
     } catch {
+      return `$${symbol} - ${name}. Community memecoin. DYOR.`;
+    }
+  };
+
+  // ─── Lookup socials ───
+  const lookupSocials = async (name: string, symbol: string) => {
+    try {
+      const r = await fetch("/api/lookup-socials", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, symbol }),
+      });
+      const d = await r.json();
+      return { twitter: d.twitter || "", website: d.website || "" };
+    } catch {
+      return { twitter: "", website: "" };
+    }
+  };
+
+  // ─── Deploy one token (same logic as auto-launch) ───
+  const deployToken = async (token: Record<string, string>, lp: string, ag: string, ch: string, wallet: string, kp?: string): Promise<boolean> => {
+    const sym = (token.symbol || "").toUpperCase();
+    const nm = token.name || "";
+    const tk = `${sym}_${nm}`.toLowerCase();
+
+    if (launchedRef.current.has(tk)) return false;
+    if ((token.chain || ch) !== ch) return false;
+
+    // Image
+    let img = token.imageUrl || token.image || "";
+    if (!isRealImageUrl(img)) {
+      img = await fetchTokenImage(nm, sym);
+      if (!img) {
+        addLog(`Skip ${sym}: no real image`, "skip");
+        return false;
+      }
+    }
+
+    // Description
+    const desc = token.description || await generateDesc(nm, sym);
+
+    // Socials
+    const { twitter, website: socialWeb } = await lookupSocials(nm, sym);
+    const website = token.website || socialWeb;
+
+    addLog(`Deploying $${sym} "${nm}"...`);
+
+    try {
+      const r = await fetch("/api/deploy-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          launchpad: lp,
+          agent: lp === "fourclaw_fun" ? "direct_api" : ag,
+          kibuPlatform: lp === "kibu" ? (kp || "flap") : undefined,
+          token: { name: nm, symbol: sym, wallet, description: desc, image: img, website, twitter, chain: ch },
+        }),
+      });
+      const d = await r.json();
+      if (d.success) {
+        launchedRef.current.add(tk);
+        addLog(`Deployed $${sym}! ${d.postUrl || d.postId || ""}`, "success");
+        addDeployedToken({ name: nm, symbol: sym, image: img, launchpad: lp, chain: ch, postUrl: d.postUrl || "" });
+        // Persist to Redis
+        fetch("/api/cloud-launch/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "deployed", instanceId, symbol: tk, sourceIndex: sourceRef.current }),
+        }).catch(() => {});
+        return true;
+      }
+      addLog(`Failed: ${d.error || "Unknown"}`, "error");
       return false;
-    } finally {
-      deployingRef.current = false;
+    } catch (e) {
+      addLog(`Deploy error: ${String(e).slice(0, 80)}`, "error");
+      return false;
     }
   };
 
-  // ─── START CRON ───
-  const startCron = async () => {
+  // ─── Main loop (runs client-side, exactly like auto-launch) ───
+  const runLoop = async (lp: string, ag: string, ch: string, wallet: string, kp: string | undefined, delay: number, max: number) => {
+    let launched = 0;
+    while (!abortRef.current && launched < max) {
+      const srcIdx = sourceRef.current;
+      addLog(`Cycle -- fetching tokens (src #${srcIdx})...`);
+
+      let tokens: Record<string, string>[] = [];
+      try {
+        const r = await fetch(`/api/auto-launch/fetch-tokens?sourceIndex=${srcIdx}&minVolume=0`);
+        const d = await r.json();
+        tokens = d.tokens || [];
+        sourceRef.current = d.nextSourceIndex ?? ((srcIdx + 1) % 6);
+        if (d.source) addLog(`Source: ${d.source} | Found ${tokens.length} tokens`);
+      } catch (e) {
+        addLog(`Fetch error: ${String(e).slice(0, 60)}`, "error");
+        sourceRef.current = (srcIdx + 1) % 6;
+      }
+
+      // Try to deploy one token from the batch
+      let deployedThisCycle = false;
+      for (const token of tokens) {
+        if (abortRef.current) break;
+        const ok = await deployToken(token, lp, ag, ch, wallet, kp);
+        if (ok) {
+          launched++;
+          setTotalLaunched(launched);
+          deployedThisCycle = true;
+          break;
+        }
+      }
+
+      if (!deployedThisCycle && !abortRef.current) {
+        addLog("No deployable tokens this cycle, rotating source", "skip");
+      }
+
+      // Update Redis source index
+      fetch("/api/cloud-launch/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update_source", instanceId, sourceIndex: sourceRef.current }),
+      }).catch(() => {});
+
+      if (abortRef.current) break;
+      if (launched >= max) break;
+
+      addLog(`Waiting ${delay}s before next cycle...`);
+      // Interruptible sleep
+      for (let i = 0; i < delay && !abortRef.current; i++) {
+        await sleep(1000);
+      }
+    }
+
+    if (launched >= max) {
+      addLog(`Max launches reached (${max}). Auto-stopped.`, "success");
+    }
+  };
+
+  // ─── START ───
+  const startCloud = async (selectedMode: Mode) => {
     setLoading(true);
+    abortRef.current = false;
+    sourceRef.current = 0;
+    launchedRef.current = new Set();
+    setTotalLaunched(0);
+    setLogs([]);
+
+    const lp = launchpad;
+    const ag = launchpad === "fourclaw_fun" ? "direct_api" : agent;
+    const ch = chain;
+    const wallet = activeWallet;
+    const kp = launchpad === "kibu" ? kibuPlatform : undefined;
+    const delay = selectedMode === "cron" ? 60 : Math.max(parseInt(delaySeconds) || 60, 15);
+    const max = parseInt(maxLaunches) || 50;
+
+    // Save to Redis
     try {
       await fetch("/api/cloud-launch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildStartBody("cron")),
+        body: JSON.stringify({
+          action: "start", instanceId, mode: selectedMode,
+          launchpad: lp, agent: ag, chain: ch, wallet,
+          source: ch, kibuPlatform: kp,
+          delaySeconds: delay, maxLaunches: max,
+        }),
       });
-      setCronRunning(true);
+    } catch { /* ok */ }
 
-      // Also trigger first run immediately (don't wait for Vercel cron)
-      await triggerRun();
-      await fetchStatus();
-
-      // Keep client-side polling to trigger runs every 60s (backup for Vercel cron)
-      if (edgeIntervalRef.current) clearInterval(edgeIntervalRef.current);
-      edgeIntervalRef.current = setInterval(async () => {
-        await triggerRun();
-        await fetchStatus();
-      }, 60000);
-    } catch (e) {
-      console.error("[v0] Start cron error:", e);
-    }
+    setRunning(true);
+    setMode(selectedMode);
     setLoading(false);
-  };
+    addLog(`Cloud #${instanceId} started (${selectedMode} mode) | ${delay}s delay | max ${max}`);
 
-  // ─── START EDGE ───
-  const startEdge = async () => {
-    setLoading(true);
-    try {
-      await fetch("/api/cloud-launch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildStartBody("edge")),
-      });
-      setEdgeRunning(true);
+    // Run loop
+    await runLoop(lp, ag, ch, wallet, kp, delay, max);
 
-      // Trigger first run immediately
-      await triggerRun();
-      await fetchStatus();
+    // Done
+    setRunning(false);
+    setMode(null);
+    addLog("Stopped");
 
-      // Client polls /run at the configured delay (fast mode)
-      const delay = Math.max((parseInt(delaySeconds) || 60) * 1000, 15000);
-      if (edgeIntervalRef.current) clearInterval(edgeIntervalRef.current);
-      edgeIntervalRef.current = setInterval(async () => {
-        // Check if still running
-        try {
-          const sr = await fetch(`/api/cloud-launch?id=${instanceId}`);
-          const sd = await sr.json();
-          if (!sd.config?.running) {
-            setEdgeRunning(false);
-            if (edgeIntervalRef.current) clearInterval(edgeIntervalRef.current);
-            return;
-          }
-        } catch { return; }
-        await triggerRun();
-        await fetchStatus();
-      }, delay);
-    } catch (e) {
-      console.error("[v0] Start edge error:", e);
-    }
-    setLoading(false);
-  };
-
-  // ─── STOP ───
-  const stopCloud = async () => {
-    setLoading(true);
-    if (edgeIntervalRef.current) { clearInterval(edgeIntervalRef.current); edgeIntervalRef.current = null; }
-    setCronRunning(false);
-    setEdgeRunning(false);
+    // Mark stopped in Redis
     try {
       await fetch("/api/cloud-launch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "stop", instanceId }),
       });
-      await fetchStatus();
-    } catch (e) {
-      console.error("[v0] Stop error:", e);
-    }
-    setLoading(false);
+    } catch { /* ok */ }
   };
 
+  // ─── STOP ───
+  const stopCloud = () => {
+    abortRef.current = true;
+    addLog("Stop requested...");
+    // Also mark stopped in Redis immediately
+    fetch("/api/cloud-launch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "stop", instanceId }),
+    }).catch(() => {});
+  };
+
+  // ─── CLEAR ───
   const clearCloud = async () => {
-    if (edgeIntervalRef.current) { clearInterval(edgeIntervalRef.current); edgeIntervalRef.current = null; }
-    setCronRunning(false);
-    setEdgeRunning(false);
+    abortRef.current = true;
+    setRunning(false);
+    setMode(null);
+    setLogs([]);
+    setTotalLaunched(0);
+    launchedRef.current = new Set();
     await fetch("/api/cloud-launch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "clear", instanceId }),
-    });
-    setConfig(null);
-    setLogs([]);
+    }).catch(() => {});
   };
 
-  // Cleanup on unmount
+  // On mount, load state from Redis (in case of page refresh)
   useEffect(() => {
-    return () => {
-      if (edgeIntervalRef.current) clearInterval(edgeIntervalRef.current);
-    };
-  }, []);
+    (async () => {
+      try {
+        const r = await fetch(`/api/cloud-launch?id=${instanceId}`);
+        const d = await r.json();
+        if (d.config?.running) {
+          // It was running before page closed -- mark it stopped since client loop is gone
+          await fetch("/api/cloud-launch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "stop", instanceId }),
+          });
+        }
+        if (d.config) {
+          setTotalLaunched(d.config.totalLaunched || 0);
+          sourceRef.current = d.config.sourceIndex || 0;
+          if (d.config.launchedSymbols) {
+            launchedRef.current = new Set(d.config.launchedSymbols);
+          }
+        }
+        if (d.logs?.length) {
+          setLogs(d.logs.map((l: LogEntry) => l));
+        }
+      } catch { /* ok */ }
+    })();
+  }, [instanceId]);
 
-  const uptime = config?.startedAt ? Math.floor((Date.now() - config.startedAt) / 60000) : 0;
+  const uptime = running ? "Active" : "Idle";
 
   return (
     <Card className="border-[#06B6D4]/30 bg-card">
@@ -253,57 +379,20 @@ export function CloudAutoLaunch({ instanceId, instanceLabel }: CloudAutoLaunchPr
             {instanceLabel}
           </CardTitle>
           <div className="flex items-center gap-1.5">
-            {isAnythingRunning && (
+            {running && mode && (
               <Badge variant="outline" className="border-[#06B6D4]/40 text-[#06B6D4] animate-pulse text-[10px]">
-                {cronRunning ? "CRON" : edgeRunning ? "EDGE" : "RUNNING"}
+                {mode === "cron" ? "CRON" : "EDGE"} | {totalLaunched} launched
               </Badge>
             )}
-            <button type="button" onClick={fetchStatus} className="text-muted-foreground hover:text-foreground p-1" title="Refresh">
-              <RotateCw className="h-3 w-3" />
-            </button>
           </div>
         </div>
         <p className="text-[10px] text-muted-foreground">
-          Background launching via Redis. Cron = every 60s (works offline). Edge = fast polling at your set delay.
+          Cron = 60s intervals (steady). Edge = fast polling at your delay. State persisted in Redis.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
-        {/* Running status */}
-        {config && (
-          <div className="rounded-lg border border-border bg-secondary/50 p-2.5 space-y-1.5">
-            <div className="flex items-center justify-between text-[10px]">
-              <span className="text-muted-foreground">Status</span>
-              <span className={config.running ? "text-chart-3 font-medium" : "text-muted-foreground"}>
-                {config.running ? "Running" : "Stopped"}
-              </span>
-            </div>
-            <div className="flex items-center justify-between text-[10px]">
-              <span className="text-muted-foreground">Mode</span>
-              <span className="text-card-foreground font-mono">{config.mode === "cron" ? "Vercel Cron" : "Edge + KV"}</span>
-            </div>
-            <div className="flex items-center justify-between text-[10px]">
-              <span className="text-muted-foreground">Launched</span>
-              <span className="text-card-foreground">{config.totalLaunched} / {config.maxLaunches}</span>
-            </div>
-            {config.running && (
-              <div className="flex items-center justify-between text-[10px]">
-                <span className="text-muted-foreground">Uptime</span>
-                <span className="text-card-foreground">{uptime} min</span>
-              </div>
-            )}
-            {config.lastRunAt && (
-              <div className="flex items-center justify-between text-[10px]">
-                <span className="text-muted-foreground">Last cycle</span>
-                <span className="text-card-foreground font-mono text-[9px]">
-                  {new Date(config.lastRunAt).toLocaleTimeString("en-US", { hour12: false })}
-                </span>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Config -- only when NOT running */}
-        {!isAnythingRunning && (
+        {!running && (
           <>
             <div className="grid grid-cols-2 gap-2">
               <div>
@@ -391,38 +480,39 @@ export function CloudAutoLaunch({ instanceId, instanceLabel }: CloudAutoLaunchPr
           </>
         )}
 
-        {/* Controls -- 2 start buttons (one per mode) or stop */}
+        {/* Controls */}
         <div className="flex gap-2">
-          {!isAnythingRunning ? (
+          {!running ? (
             <>
-              <Button onClick={startCron} disabled={loading}
+              <Button onClick={() => startCloud("cron")} disabled={loading}
                 className="flex-1 h-8 text-xs bg-[#06B6D4] text-[#000] hover:bg-[#06B6D4]/90 font-semibold"
               >
                 <Timer className="mr-1 h-3 w-3" />
-                {loading ? "Starting..." : "Start Cron"}
+                {loading ? "Starting..." : "Start Cron (60s)"}
               </Button>
-              <Button onClick={startEdge} disabled={loading}
+              <Button onClick={() => startCloud("edge")} disabled={loading}
                 className="flex-1 h-8 text-xs bg-[#8B5CF6] text-[#fff] hover:bg-[#8B5CF6]/90 font-semibold"
               >
                 <Zap className="mr-1 h-3 w-3" />
-                {loading ? "Starting..." : "Start Edge"}
+                {loading ? "Starting..." : `Start Edge (${delaySeconds}s)`}
               </Button>
             </>
           ) : (
-            <Button onClick={stopCloud} disabled={loading} variant="destructive" className="flex-1 h-8 text-xs">
+            <Button onClick={stopCloud} variant="destructive" className="flex-1 h-8 text-xs">
               <Square className="mr-1.5 h-3 w-3" />
-              {loading ? "Stopping..." : "Stop"}
+              Stop
             </Button>
           )}
-          {!isAnythingRunning && config && (
+          {!running && totalLaunched > 0 && (
             <Button variant="outline" onClick={clearCloud} className="h-8 text-xs bg-transparent">Clear</Button>
           )}
         </div>
 
         {/* Info */}
         <div className="rounded border border-border bg-secondary/30 p-2 text-[9px] text-muted-foreground space-y-0.5">
-          <p><span className="font-medium text-[#06B6D4]">Cron:</span> Runs every 60s. Vercel triggers it + client backup poll. Works offline.</p>
-          <p><span className="font-medium text-[#8B5CF6]">Edge:</span> Client triggers /run every {delaySeconds || 60}s. Faster but needs browser open.</p>
+          <p><span className="font-medium text-[#06B6D4]">Cron:</span> Fixed 60s delay. Same pipeline as Auto-Launch. State saved to Redis.</p>
+          <p><span className="font-medium text-[#8B5CF6]">Edge:</span> Custom {delaySeconds || 60}s delay. Faster cycles. Needs browser tab open.</p>
+          <p className="text-[8px]">Both modes: fetch tokens, validate images, generate desc, deploy -- identical to Auto-Launch.</p>
         </div>
 
         {/* Logs */}
