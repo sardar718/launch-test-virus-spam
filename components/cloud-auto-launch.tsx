@@ -6,13 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Cloud, Zap, Timer, Square, RotateCw, Wifi, WifiOff } from "lucide-react";
+import { Cloud, Zap, Timer, Square, RotateCw, Server } from "lucide-react";
 import { addDeployedToken } from "@/components/deployed-tokens-box";
 import { addGlobalLog } from "@/components/global-activity-feed";
 
 const DEFAULT_ADMIN = "0x9c6111C77CBE545B9703243F895EB593f2721C7a";
 
-type Mode = "cron" | "edge" | "qstash";
+type Mode = "cron" | "edge" | "server_cron";
 type Launchpad = "4claw" | "kibu" | "clawnch" | "molaunch" | "fourclaw_fun" | "synthlaunch";
 type Agent = "moltx" | "4claw_org" | "moltbook" | "clawstr" | "direct_api" | "bapbook";
 
@@ -53,7 +53,6 @@ export function CloudAutoLaunch({ instanceId, instanceLabel }: Props) {
   const [mode, setMode] = useState<Mode | null>(null);
   const [totalLaunched, setTotalLaunched] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [qstashScheduleId, setQstashScheduleId] = useState<string | null>(null);
   const [resuming, setResuming] = useState(false);
 
   const abortRef = useRef(false);
@@ -247,8 +246,8 @@ export function CloudAutoLaunch({ instanceId, instanceLabel }: Props) {
     }
   };
 
-  // QStash mode: poll Redis for logs and state (server does the work)
-  const runQStashPoller = async () => {
+  // Server Cron mode: poll Redis for logs and state (Vercel Cron does the work server-side)
+  const runServerCronPoller = async () => {
     while (!abortRef.current) {
       try {
         const r = await fetch(`/api/cloud-launch?id=${instanceId}`);
@@ -256,7 +255,7 @@ export function CloudAutoLaunch({ instanceId, instanceLabel }: Props) {
         if (d.config) {
           setTotalLaunched(d.config.totalLaunched || 0);
           if (!d.config.running) {
-            addLog("QStash session ended (max reached or stopped remotely)", "success");
+            addLog("Server cron stopped (max reached or stopped remotely)", "success");
             break;
           }
         }
@@ -264,8 +263,8 @@ export function CloudAutoLaunch({ instanceId, instanceLabel }: Props) {
           setLogs(d.logs.map((l: LogEntry) => l));
         }
       } catch { /* ignore */ }
-      // Poll every 10s
-      for (let i = 0; i < 10 && !abortRef.current; i++) {
+      // Poll every 15s
+      for (let i = 0; i < 15 && !abortRef.current; i++) {
         await sleep(1000);
       }
     }
@@ -306,48 +305,26 @@ export function CloudAutoLaunch({ instanceId, instanceLabel }: Props) {
     setMode(selectedMode);
     setLoading(false);
 
-    if (selectedMode === "qstash") {
-      addLog(`Cloud #${instanceId} started (QStash mode) | ~${Math.max(Math.ceil(delay / 60), 1)} min intervals | max ${max}`);
-      addLog("QStash runs server-side -- works even with browser closed.");
+    if (selectedMode === "server_cron") {
+      addLog(`Cloud #${instanceId} started (Server Cron mode) | Vercel Cron every ~60s | max ${max}`);
+      addLog("Runs server-side on Vercel -- works even with browser closed after deploy.");
 
-      // Create QStash schedule
+      // Set mode to "cron" in Redis so the server-side cron handler picks it up
       try {
-        const origin = window.location.origin;
-        const r = await fetch("/api/cloud-launch/qstash-schedule", {
+        await fetch("/api/cloud-launch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action: "create",
-            instanceId,
-            delaySeconds: delay,
-            destination: `${origin}/api/cloud-launch/qstash`,
+            action: "start", instanceId, mode: "cron",
+            launchpad: lp, agent: ag, chain: ch, wallet,
+            source: ch, kibuPlatform: kp,
+            delaySeconds: 60, maxLaunches: max,
           }),
         });
-        const d = await r.json();
-        if (d.scheduleId) {
-          setQstashScheduleId(d.scheduleId);
-          addLog(`QStash schedule created: ${d.scheduleId}`, "success");
-          // Save schedule ID to Redis for persistence
-          fetch("/api/cloud-launch/run", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "update_source", instanceId, sourceIndex: 0, qstashScheduleId: d.scheduleId }),
-          }).catch(() => {});
-        } else {
-          addLog(`QStash error: ${d.error || "Unknown"}`, "error");
-          setRunning(false);
-          setMode(null);
-          return;
-        }
-      } catch (e) {
-        addLog(`QStash setup error: ${String(e).slice(0, 80)}`, "error");
-        setRunning(false);
-        setMode(null);
-        return;
-      }
+      } catch { /* ok */ }
 
-      // Poll for updates
-      await runQStashPoller();
+      // Poll Redis for updates
+      await runServerCronPoller();
     } else {
       addLog(`Cloud #${instanceId} started (${selectedMode} mode) | ${delay}s delay | max ${max}`);
       await runLoop(lp, ag, ch, wallet, kp, delay, max);
@@ -371,20 +348,7 @@ export function CloudAutoLaunch({ instanceId, instanceLabel }: Props) {
     abortRef.current = true;
     addLog("Stop requested...");
 
-    // If QStash mode, delete the schedule
-    if (mode === "qstash" && qstashScheduleId) {
-      try {
-        await fetch("/api/cloud-launch/qstash-schedule", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "delete", scheduleId: qstashScheduleId }),
-        });
-        addLog("QStash schedule deleted", "info");
-      } catch { /* ok */ }
-      setQstashScheduleId(null);
-    }
-
-    // Mark stopped in Redis immediately
+    // Mark stopped in Redis immediately (server cron checks this)
     fetch("/api/cloud-launch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -398,18 +362,10 @@ export function CloudAutoLaunch({ instanceId, instanceLabel }: Props) {
   // CLEAR
   const clearCloud = async () => {
     abortRef.current = true;
-    if (qstashScheduleId) {
-      fetch("/api/cloud-launch/qstash-schedule", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "delete", scheduleId: qstashScheduleId }),
-      }).catch(() => {});
-    }
     setRunning(false);
     setMode(null);
     setLogs([]);
     setTotalLaunched(0);
-    setQstashScheduleId(null);
     launchedRef.current = new Set();
     await fetch("/api/cloud-launch", {
       method: "POST",
@@ -465,13 +421,14 @@ export function CloudAutoLaunch({ instanceId, instanceLabel }: Props) {
               body: JSON.stringify({ action: "stop", instanceId }),
             }).catch(() => {});
           }
-          // QStash mode: it's running server-side, just poll
-          else if (d.config.running && d.config.mode === "qstash") {
+          // Server Cron mode: it's running server-side, just poll
+          else if (d.config.running && d.config.mode === "cron" && !d.config.lastRunAt) {
+            // If cron mode was started as server_cron, poll for updates
             setRunning(true);
-            setMode("qstash");
-            addLog("QStash mode active (server-side). Polling for updates...", "info");
+            setMode("server_cron");
+            addLog("Server Cron mode active (Vercel Cron). Polling for updates...", "info");
             abortRef.current = false;
-            await runQStashPoller();
+            await runServerCronPoller();
             setRunning(false);
             setMode(null);
           }
@@ -499,12 +456,12 @@ export function CloudAutoLaunch({ instanceId, instanceLabel }: Props) {
           <div className="flex items-center gap-1.5">
             {running && mode && (
               <Badge variant="outline" className={`animate-pulse text-[10px] ${
-                mode === "qstash" ? "border-[#10B981]/40 text-[#10B981]"
+                mode === "server_cron" ? "border-[#10B981]/40 text-[#10B981]"
                 : mode === "cron" ? "border-[#06B6D4]/40 text-[#06B6D4]"
                 : "border-[#8B5CF6]/40 text-[#8B5CF6]"
               }`}>
-                {mode === "qstash" && <Wifi className="mr-1 h-2.5 w-2.5" />}
-                {mode.toUpperCase()} | {totalLaunched} launched
+                {mode === "server_cron" && <Server className="mr-1 h-2.5 w-2.5" />}
+                {mode === "server_cron" ? "SERVER" : mode.toUpperCase()} | {totalLaunched} launched
               </Badge>
             )}
             {resuming && (
@@ -515,7 +472,7 @@ export function CloudAutoLaunch({ instanceId, instanceLabel }: Props) {
           </div>
         </div>
         <p className="text-[10px] text-muted-foreground">
-          Cron = 60s | Edge = custom | QStash = server-side (works offline). State in Redis.
+          Cron = 60s | Edge = custom delay | Server Cron = works offline (Vercel Cron + Redis).
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -624,11 +581,11 @@ export function CloudAutoLaunch({ instanceId, instanceLabel }: Props) {
                 <Zap className="mr-1 h-3 w-3" />
                 {loading ? "..." : `Edge (${delaySeconds}s)`}
               </Button>
-              <Button onClick={() => startCloud("qstash")} disabled={loading}
+              <Button onClick={() => startCloud("server_cron")} disabled={loading}
                 className="flex-1 min-w-[90px] h-8 text-[10px] sm:text-xs bg-[#10B981] text-[#000] hover:bg-[#10B981]/90 font-semibold"
               >
-                <Wifi className="mr-1 h-3 w-3" />
-                {loading ? "..." : "QStash"}
+                <Server className="mr-1 h-3 w-3" />
+                {loading ? "..." : "Server Cron"}
               </Button>
             </>
           ) : (
@@ -644,9 +601,9 @@ export function CloudAutoLaunch({ instanceId, instanceLabel }: Props) {
 
         {/* Info */}
         <div className="rounded border border-border bg-secondary/30 p-2 text-[9px] text-muted-foreground space-y-0.5">
-          <p><span className="font-medium text-[#06B6D4]">Cron:</span> 60s delay. Browser must stay open. Auto-resumes on refresh.</p>
-          <p><span className="font-medium text-[#8B5CF6]">Edge:</span> Custom {delaySeconds || 60}s delay. Browser must stay open. Auto-resumes on refresh.</p>
-          <p><span className="font-medium text-[#10B981]">QStash:</span> Server-side. Works with browser closed & internet off. ~1 min intervals.</p>
+          <p><span className="font-medium text-[#06B6D4]">Cron:</span> 60s intervals. Browser must stay open. Auto-resumes on refresh.</p>
+          <p><span className="font-medium text-[#8B5CF6]">Edge:</span> Custom {delaySeconds || 60}s intervals. Browser must stay open. Auto-resumes on refresh.</p>
+          <p><span className="font-medium text-[#10B981]">Server Cron:</span> Runs on Vercel server. Works with browser closed. Deploys via Vercel Cron every ~1 min.</p>
         </div>
 
         {/* Logs */}

@@ -43,20 +43,20 @@ const stats = [
 
 export function StatsBar() {
   return (
-    <div className="grid grid-cols-3 gap-2 lg:grid-cols-6">
+    <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 sm:gap-2 lg:grid-cols-6">
       {stats.map((stat) => (
         <div
           key={stat.label}
-          className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 transition-colors hover:border-primary/20"
+          className="flex items-center gap-1.5 sm:gap-2.5 rounded-lg border border-border bg-card px-2 py-2 sm:px-3 sm:py-2.5 transition-colors hover:border-primary/20"
         >
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/5 border border-primary/10">
-            <stat.icon className="h-3.5 w-3.5 text-primary/70" />
+          <div className="flex h-6 w-6 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-md bg-primary/5 border border-primary/10">
+            <stat.icon className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-primary/70" />
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-bold text-card-foreground font-mono truncate">
+            <p className="text-[10px] sm:text-xs font-bold text-card-foreground font-mono truncate">
               {stat.value}
             </p>
-            <p className="text-[9px] text-muted-foreground truncate">{stat.label}</p>
+            <p className="text-[8px] sm:text-[9px] text-muted-foreground truncate">{stat.label}</p>
           </div>
         </div>
       ))}

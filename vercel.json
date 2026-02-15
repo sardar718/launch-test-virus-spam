@@ -1,7 +1,7 @@
 {
   "crons": [
     {
-      "path": "/api/cloud-launch/run",
+      "path": "/api/cloud-launch/cron",
       "schedule": "* * * * *"
     }
   ]
