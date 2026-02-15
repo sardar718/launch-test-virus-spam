@@ -60,13 +60,31 @@ function parseGeckoPool(
   const tokenInfo = included.find((i: Record<string, unknown>) => i.id === baseTokenId);
   const ta = tokenInfo?.attributes as Record<string, unknown> | undefined;
 
-  // Extract the token-specific image URL from the included token data
+  // Extract the token-specific image URL -- check multiple locations
   let imageUrl: string | undefined;
+
+  // 1) Direct image_url on the token included object
   if (ta?.image_url && typeof ta.image_url === "string" && ta.image_url.startsWith("http")) {
     imageUrl = ta.image_url;
   }
 
-  // Also check for token logo in the token info links or coingecko data
+  // 2) Check token_info.image_url (GeckoTerminal nested format)
+  if (!imageUrl) {
+    const tokenInfoImg = (ta as Record<string, unknown>)?.token_info;
+    if (tokenInfoImg && typeof tokenInfoImg === "object") {
+      const infoObj = tokenInfoImg as Record<string, unknown>;
+      if (infoObj.image_url && typeof infoObj.image_url === "string" && (infoObj.image_url as string).startsWith("http")) {
+        imageUrl = infoObj.image_url as string;
+      }
+    }
+  }
+
+  // 3) Pool-level image_url (some pools have their own)
+  if (!imageUrl && a?.image_url && typeof a.image_url === "string" && (a.image_url as string).startsWith("http")) {
+    imageUrl = a.image_url as string;
+  }
+
+  // 4) CoinGecko CDN via coin_id
   if (!imageUrl && ta?.coingecko_coin_id) {
     imageUrl = `https://assets.coingecko.com/coins/images/${ta.coingecko_coin_id}/small/logo.png`;
   }
@@ -103,14 +121,23 @@ function parseDexPair(pair: Record<string, unknown>): AutoToken | null {
   const socials = (info?.socials as { type: string; url: string }[]) || [];
   const twitter = socials.find((s) => s.type === "twitter");
 
-  // Per-token image from DexScreener's info object
+  // Per-token image from DexScreener's info object -- check multiple locations
   let imageUrl: string | undefined;
   if (info?.imageUrl && typeof info.imageUrl === "string" && (info.imageUrl as string).startsWith("http")) {
     imageUrl = info.imageUrl as string;
   }
-  // Also try header image
+  // Try header image
   if (!imageUrl && info?.header && typeof info.header === "string" && (info.header as string).startsWith("http")) {
     imageUrl = info.header as string;
+  }
+  // Try icon from baseToken
+  if (!imageUrl && bt?.icon && typeof bt.icon === "string" && bt.icon.startsWith("http")) {
+    imageUrl = bt.icon;
+  }
+  // Try openGraph image
+  if (!imageUrl && info?.openGraph && typeof (info.openGraph as Record<string, unknown>)?.image === "string") {
+    const ogImg = (info.openGraph as Record<string, string>).image;
+    if (ogImg.startsWith("http")) imageUrl = ogImg;
   }
 
   return {

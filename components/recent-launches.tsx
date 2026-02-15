@@ -36,6 +36,7 @@ const SOURCES = [
   { id: "clawnch", label: "Clawnch", color: "text-[#0052FF]", explorer: "https://basescan.org/token/" },
   { id: "4claw", label: "4claw", color: "text-primary", explorer: "https://bscscan.com/token/" },
   { id: "fourclaw-fun", label: "FourClaw.Fun", color: "text-[#F59E0B]", explorer: "https://bscscan.com/token/" },
+  { id: "synthlaunch", label: "SynthLaunch", color: "text-[#00D4AA]", explorer: "https://bscscan.com/token/" },
 ] as const;
 
 function truncateAddress(addr: string | undefined): string {

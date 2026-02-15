@@ -55,7 +55,46 @@ export async function POST(request: Request) {
       }
     } catch { /* fall through */ }
 
-    // Attempt 3: Search CoinGecko for token image by name
+    // Attempt 3: GeckoTerminal search by name (can find contract-based images)
+    try {
+      const gtRes = await fetch(
+        `https://api.geckoterminal.com/api/v2/search/pools?query=${encodeURIComponent(name)}&page=1`,
+        { signal: AbortSignal.timeout(5000) }
+      );
+      if (gtRes.ok) {
+        const gtData = await gtRes.json();
+        const pools = gtData?.data || [];
+        for (const pool of (Array.isArray(pools) ? pools : []).slice(0, 5)) {
+          const attrs = pool?.attributes || {};
+          const baseTokenName = (attrs.name || "").split("/")[0]?.trim()?.toLowerCase();
+          if (baseTokenName && (baseTokenName === name.toLowerCase() || baseTokenName.includes(name.toLowerCase().slice(0, 4)))) {
+            // Try to get token image from included relationships
+            const tokenId = pool?.relationships?.base_token?.data?.id;
+            if (tokenId) {
+              const [network, addr] = tokenId.split("_");
+              if (network && addr) {
+                // GeckoTerminal token info endpoint has image_url
+                try {
+                  const tokenRes = await fetch(
+                    `https://api.geckoterminal.com/api/v2/networks/${network}/tokens/${addr}`,
+                    { signal: AbortSignal.timeout(4000) }
+                  );
+                  if (tokenRes.ok) {
+                    const tokenData = await tokenRes.json();
+                    const imgUrl = tokenData?.data?.attributes?.image_url;
+                    if (imgUrl && (imgUrl.endsWith(".png") || imgUrl.endsWith(".jpg") || imgUrl.endsWith(".jpeg") || imgUrl.includes("assets.geckoterminal.com"))) {
+                      return NextResponse.json({ url: imgUrl, source: "geckoterminal" });
+                    }
+                  }
+                } catch { /* continue */ }
+              }
+            }
+          }
+        }
+      }
+    } catch { /* fall through */ }
+
+    // Attempt 4: Search CoinGecko for token image by name
     try {
       const cgRes = await fetch(
         `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(name)}`,

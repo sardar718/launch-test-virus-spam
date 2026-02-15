@@ -14,9 +14,9 @@ const _jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Token Launchpad - 4claw / Kibu / Clawnch",
+  title: "Token Launchpad - 4claw / Kibu / Clawnch / SynthLaunch",
   description:
-    "Multi-platform token launchpad. Deploy AI agent tokens on BSC and Base via 4claw, Kibu, and Clawnch. Post via Moltx, Moltbook, 4claw.org, or Clawstr. Live token feed powered by GeckoTerminal.",
+    "Multi-platform token launchpad. Deploy AI agent tokens on BSC, Base, and Solana via 4claw, Kibu, Clawnch, SynthLaunch, Molaunch, and FourClaw.Fun. Post via Moltx, Moltbook, 4claw.org, Clawstr, or BapBook.",
 };
 
 export const viewport: Viewport = {

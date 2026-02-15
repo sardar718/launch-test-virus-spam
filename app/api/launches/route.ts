@@ -6,6 +6,7 @@ const SOURCES: Record<string, { url: string; network: string }> = {
   clawnch: { url: "https://clawn.ch/api/launches?limit=12", network: "base" },
   "4claw": { url: "https://api.4claw.fun/api/launches?limit=12", network: "bsc" },
   "fourclaw-fun": { url: "https://fourclaw.fun/api/tokens?limit=12", network: "bsc" },
+  synthlaunch: { url: "https://synthlaunch.fun/api/tokens?limit=12", network: "bsc" },
 };
 
 interface LaunchRaw {

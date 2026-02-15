@@ -10,19 +10,22 @@ const GENERATORS = [
 
 export async function POST(request: Request) {
   try {
-    const { name, symbol, provider } = await request.json();
+    const { name, symbol, provider, seed: requestSeed } = await request.json();
     if (!name) {
       return NextResponse.json({ error: "Token name required" }, { status: 400 });
     }
 
     const selectedProvider = provider || "pollinations";
+    // Use the seed from request if provided (ensures unique per-token images in auto-launch)
+    const uniqueSeed = requestSeed || `${name}_${symbol || ""}_${Date.now()}`;
 
     // ── Provider 1: Pollinations.ai ──
     if (selectedProvider === "pollinations") {
-      const prompt = `memecoin crypto token logo, ${name}, ${symbol || ""}, circular icon, vibrant colors, simple design, digital art, high quality, centered, no text, clean background`;
+      // Include token name + symbol in prompt for unique per-token art
+      const prompt = `memecoin crypto token logo for "${name}" ($${symbol || "TOKEN"}), circular coin icon, vibrant colors, simple bold design, digital art, centered, no text, clean background`;
       const encodedPrompt = encodeURIComponent(prompt);
-      // Each call uses a unique seed for regeneration
-      const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=512&height=512&nologo=true&seed=${Date.now()}`;
+      // Use unique seed to guarantee different image per token
+      const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=512&height=512&nologo=true&seed=${encodeURIComponent(uniqueSeed)}`;
 
       // Try to re-host via kibu for stable URL
       try {

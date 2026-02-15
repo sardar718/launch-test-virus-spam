@@ -14,21 +14,40 @@ export function ThemeToggle() {
     }
   }, []);
 
-  function toggle() {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    localStorage.setItem("theme", next);
-    document.documentElement.classList.toggle("light", next === "light");
+  function select(mode: "dark" | "light") {
+    setTheme(mode);
+    localStorage.setItem("theme", mode);
+    document.documentElement.classList.toggle("light", mode === "light");
   }
 
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-secondary text-muted-foreground transition-colors hover:text-foreground hover:bg-secondary/80"
-      aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-    >
-      {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-    </button>
+    <div className="flex items-center rounded-lg border border-border bg-secondary p-0.5">
+      <button
+        type="button"
+        onClick={() => select("light")}
+        className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${
+          theme === "light"
+            ? "bg-card text-card-foreground shadow-sm"
+            : "text-muted-foreground hover:text-foreground"
+        }`}
+        aria-label="Day mode"
+      >
+        <Sun className="h-3 w-3" />
+        Day
+      </button>
+      <button
+        type="button"
+        onClick={() => select("dark")}
+        className={`flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors ${
+          theme === "dark"
+            ? "bg-card text-card-foreground shadow-sm"
+            : "text-muted-foreground hover:text-foreground"
+        }`}
+        aria-label="Night mode"
+      >
+        <Moon className="h-3 w-3" />
+        Night
+      </button>
+    </div>
   );
 }

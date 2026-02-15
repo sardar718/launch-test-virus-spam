@@ -7,25 +7,27 @@ const NAV_LINKS = [
   { label: "4claw", url: "https://4claw.fun", desc: "BSC" },
   { label: "Kibu", url: "https://kibu.bot", desc: "BSC/Base" },
   { label: "Clawnch", url: "https://clawn.ch", desc: "Base" },
+  { label: "SynthLaunch", url: "https://synthlaunch.fun", desc: "BSC" },
   { label: "Moltx", url: "https://moltx.io", desc: "Agent" },
   { label: "Moltbook", url: "https://www.moltbook.com", desc: "Agent" },
-  { label: "Clawstr", url: "https://clawstr.com", desc: "Agent" },
+  { label: "BapBook", url: "https://bapbook.com", desc: "Agent" },
 ];
 
 export function Header() {
   return (
-    <header className="border-b border-border bg-card">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 lg:px-8">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-mono font-bold text-sm">
+    <header className="border-b border-border bg-card relative">
+      <div className="absolute bottom-0 left-0 right-0 h-px bg-primary/20" />
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-2 py-2 sm:px-4 sm:py-3 lg:px-8">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex h-7 w-7 sm:h-9 sm:w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground font-mono font-bold text-xs sm:text-sm shadow-sm shadow-primary/20">
             4C
           </div>
           <div>
-            <h1 className="text-base font-bold tracking-tight text-foreground">
+            <h1 className="text-sm sm:text-base font-bold tracking-tight text-foreground">
               Token Launchpad
             </h1>
-            <p className="text-[10px] text-muted-foreground font-mono">
-              4claw | Kibu | Clawnch
+            <p className="text-[9px] sm:text-[10px] text-muted-foreground font-mono">
+              6 Launchpads -- 6 Agents -- 3 Chains
             </p>
           </div>
         </div>

@@ -6,6 +6,8 @@ const FOURCLAW_ORG_API = "https://www.4claw.org/api/v1";
 const MOLTBOOK_API = "https://www.moltbook.com/api/v1";
 const FOURCLAW_FUN_API = "https://api.4claw.fun/api";
 const CLAWNCH_API = "https://clawn.ch/api";
+const SYNTHLAUNCH_API = "https://synthlaunch.fun/api";
+const BAPBOOK_API = "https://app-ookzumda.fly.dev";
 
 interface TokenData {
   name: string;
@@ -24,8 +26,44 @@ interface TokenData {
   lp?: number;
 }
 
+// ── Ensure image URL ends with .png/.jpg/.webp ──────────────────
+// If URL has query params (e.g. DexScreener ?width=800&height=800), proxy
+// through wsrv.nl free CDN which serves clean .png output.
+// Also tries GeckoTerminal and CoinGecko CDN links.
+function cleanImageUrl(url: string | undefined): string {
+  if (!url || !url.startsWith("http")) return "";
+  const lower = url.toLowerCase();
+
+  // Already a clean image extension -- use as-is
+  if (lower.match(/\.(png|jpg|jpeg|webp)$/)) return url;
+
+  // GeckoTerminal asset links are fine (they serve images directly)
+  if (lower.includes("assets.geckoterminal.com")) return url;
+
+  // CoinGecko coin-images are fine
+  if (lower.includes("coin-images.coingecko.com") && lower.includes(".png")) return url;
+
+  // DexScreener CMS images have ?width=&height= -- strip params to get raw image
+  if (lower.includes("dexscreener.com/cms/images/")) {
+    const base = url.split("?")[0];
+    // Proxy through wsrv.nl to get a .png output
+    return `https://wsrv.nl/?url=${encodeURIComponent(base)}&output=png`;
+  }
+
+  // Any other URL with query params -- proxy through wsrv.nl for clean .png
+  if (url.includes("?")) {
+    return `https://wsrv.nl/?url=${encodeURIComponent(url.split("?")[0])}&output=png`;
+  }
+
+  // URL has no extension and no params -- proxy it to ensure .png output
+  return `https://wsrv.nl/?url=${encodeURIComponent(url)}&output=png`;
+}
+
 // ── Build launch command content ────────────────────────────────
 function buildPostContent(launchpad: string, token: TokenData, kibuPlatform?: string): string {
+  // SynthLaunch uses its own format
+  if (launchpad === "synthlaunch") return buildSynthLaunchContent(token);
+
   const cmd =
     launchpad === "4claw"
       ? "!4clawd"
@@ -34,9 +72,10 @@ function buildPostContent(launchpad: string, token: TokenData, kibuPlatform?: st
         : launchpad === "molaunch"
           ? "!molaunch"
           : "!clawnch";
+  const cleanedImage = cleanImageUrl(token.image);
   let post = `${cmd}\nname: ${token.name}\nsymbol: ${token.symbol}\nwallet: ${token.wallet}`;
   if (token.description) post += `\ndescription: ${token.description}`;
-  if (token.image) post += `\nimage: ${token.image}`;
+  if (cleanedImage) post += `\nimage: ${cleanedImage}`;
   if (token.website) post += `\nwebsite: ${token.website}`;
   if (token.twitter) post += `\ntwitter: ${token.twitter}`;
   if (token.telegram && (launchpad === "4claw" || launchpad === "molaunch"))
@@ -52,7 +91,24 @@ function buildPostContent(launchpad: string, token: TokenData, kibuPlatform?: st
   return post;
 }
 
+function buildSynthLaunchContent(token: TokenData): string {
+  const jsonObj: Record<string, string | number> = {
+    name: token.name,
+    symbol: token.symbol,
+    description: token.description || `$${token.symbol} token`,
+    image: cleanImageUrl(token.image),
+    wallet: token.wallet,
+  };
+  if (token.tax) jsonObj.taxRate = token.tax * 100; // basis points
+  if (token.website) jsonObj.website = token.website;
+  if (token.twitter) jsonObj.twitter = token.twitter;
+  return `!synthlaunch\n\`\`\`json\n${JSON.stringify(jsonObj, null, 2)}\n\`\`\``;
+}
+
 function buildMoltbookContent(launchpad: string, token: TokenData, kibuPlatform?: string): string {
+  // SynthLaunch uses its own format for Moltbook posts
+  if (launchpad === "synthlaunch") return buildSynthLaunchContent(token);
+
   const cmd =
     launchpad === "4claw"
       ? "!4clawd"
@@ -67,7 +123,8 @@ function buildMoltbookContent(launchpad: string, token: TokenData, kibuPlatform?
     wallet: token.wallet,
   };
   if (token.description) jsonObj.description = token.description;
-  if (token.image) jsonObj.image = token.image;
+  const moltCleanedImage = cleanImageUrl(token.image);
+  if (moltCleanedImage) jsonObj.image = moltCleanedImage;
   if (token.website) jsonObj.website = token.website;
   if (token.twitter) jsonObj.twitter = token.twitter;
   if ((launchpad === "kibu" || launchpad === "clawnch") && token.chain)
@@ -390,6 +447,29 @@ async function triggerLaunchpad(
       : `4claw trigger: ${d?.error || d?.message || res.status}`;
   }
 
+  // SynthLaunch: POST /api/launch with moltbook_key + post_id
+  if (launchpad === "synthlaunch" && source === "moltbook") {
+    try {
+      const res = await fetch(`${SYNTHLAUNCH_API}/launch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ moltbook_key: apiKey, post_id: postId }),
+      });
+      const d = await res.json();
+      if (d.success) {
+        return `SynthLaunch deployed! Token: ${d.token_address || "pending"} | Flap: ${d.flap_url || ""}`;
+      }
+      return `SynthLaunch: ${d?.error || res.status}`;
+    } catch (e) {
+      return `SynthLaunch trigger error: ${String(e)}`;
+    }
+  }
+
+  // For SynthLaunch via non-moltbook agents, post content must still get picked up
+  if (launchpad === "synthlaunch") {
+    return "SynthLaunch auto-scans Moltbook posts with !synthlaunch. Token will deploy within 1 minute.";
+  }
+
   if (launchpad === "clawnch" && source === "moltbook") {
     const res = await fetch(`${CLAWNCH_API}/launch`, {
       method: "POST",
@@ -551,10 +631,12 @@ export async function POST(request: Request) {
       });
     }
 
-    // ── CLAWSTR AGENT ── (Uses Moltx registration + EVM wallet)
+    // ── CLAWSTR AGENT ── (Nostr-based; posts to Moltx where Clawstr indexes it)
+    // Clawstr is a Nostr-protocol social network with no HTTP API.
+    // It auto-scans Moltx posts, so we post via Moltx and trigger as "clawstr".
     if (agent === "clawstr") {
       if (!apiKey) {
-        log.push(`Registering "${token.name}" agent on Moltx (for Clawstr relay)...`);
+        log.push(`Registering "${token.name}" agent on Moltx (Clawstr relay)...`);
         const reg = await registerMoltxAgent(token.name, token.symbol);
         apiKey = reg.apiKey;
         agentName = reg.agentName;
@@ -566,22 +648,22 @@ export async function POST(request: Request) {
 
       await new Promise((r) => setTimeout(r, 1500));
 
-      // Engage with feed before posting (Moltx requirement)
       await engageMoltxFeed(apiKey, log);
 
       const content = buildPostContent(launchpad, token, kibuPlatform);
-      log.push("Posting to Moltx (Clawstr auto-scans)...");
+      log.push("Posting via Clawstr (Moltx relay)...");
       const { postId } = await postToMoltxWithRetry(apiKey, content, chainId, log, evmWalletRef);
-      log.push(`Posted! ID: ${postId}`);
+      log.push(`Clawstr post relayed! ID: ${postId}`);
 
-      const trigger = await triggerLaunchpad(launchpad, "moltx", postId, apiKey);
+      // Trigger launchpad as "clawstr" source, NOT "moltx"
+      const trigger = await triggerLaunchpad(launchpad, "clawstr", postId, apiKey);
       log.push(trigger);
 
       return NextResponse.json({
         success: true,
-        message: `Posted via Clawstr (Moltx). ${trigger}`,
+        message: `Posted via Clawstr. ${trigger}`,
         postId,
-        postUrl: `https://moltx.io/post/${postId}`,
+        postUrl: `https://clawstr.com`,
         autoScanned: true,
         log,
         tokenName: token.name,
@@ -664,7 +746,9 @@ export async function POST(request: Request) {
             ? "clawnch"
             : launchpad === "molaunch"
               ? "molaunch"
-              : "crypto";
+              : launchpad === "synthlaunch"
+                ? "synthlaunch"
+                : "crypto";
       log.push(`Posting to Moltbook (m/${submolt})...`);
 
       const res = await fetch(`${MOLTBOOK_API}/posts`, {
@@ -701,6 +785,67 @@ export async function POST(request: Request) {
         log,
         tokenName: token.name,
         tokenSymbol: token.symbol,
+      });
+    }
+
+    // ── BAPBOOK AGENT ── (Reddit-style social for AI agents on BNB)
+    if (agent === "bapbook") {
+      // Step 1: Register agent on BapBook
+      log.push(`Registering "${token.name}" agent on BapBook...`);
+      const regRes = await fetch(`${BAPBOOK_API}/api/webhook`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "register",
+          agent_name: `${token.name.replace(/[^A-Za-z0-9_ ]/g, "")}_${Date.now().toString(36)}`,
+          twitter_handle: token.twitter || `@${token.symbol?.toLowerCase() || "token"}`,
+        }),
+      });
+      const regData = await regRes.json();
+      if (!regRes.ok || !regData.success) {
+        throw new Error(regData?.message || regData?.error || `BapBook register failed (${regRes.status})`);
+      }
+      const bapAgentId = regData.agent_id;
+      const bapApiKey = regData.api_key;
+      log.push(`BapBook agent registered! ID: ${bapAgentId}`);
+
+      // Step 2: Post the launch command to "tokens" subbort
+      const content = buildPostContent(launchpad, token, kibuPlatform);
+      log.push("Posting to BapBook (m/tokens)...");
+
+      const postRes = await fetch(`${BAPBOOK_API}/api/webhook`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "post",
+          agent_id: String(bapAgentId),
+          api_key: bapApiKey,
+          title: `Launching $${token.symbol} on ${launchpad}!`,
+          content,
+          subbort: "tokens",
+        }),
+      });
+      const postData = await postRes.json();
+      if (!postRes.ok || !postData.success) {
+        throw new Error(postData?.message || postData?.error || `BapBook post failed (${postRes.status})`);
+      }
+      const postId = postData.post_id || postData.id || "unknown";
+      log.push(`Posted to BapBook! Post ID: ${postId}`);
+
+      // Step 3: Trigger launchpad (BapBook posts are scanned by launchpads)
+      const trigger = await triggerLaunchpad(launchpad, "bapbook", postId, bapApiKey);
+      log.push(trigger);
+
+      return NextResponse.json({
+        success: true,
+        message: `Posted via BapBook. ${trigger}`,
+        postId,
+        postUrl: `https://bapbook.com`,
+        autoScanned: true,
+        log,
+        tokenName: token.name,
+        tokenSymbol: token.symbol,
+        credentials: { apiKey: bapApiKey, agentName: `bapbook_${bapAgentId}` },
       });
     }
 
