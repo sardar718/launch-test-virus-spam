@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 import { addDeployedToken } from "@/components/deployed-tokens-box";
+import { addGlobalLog } from "@/components/global-activity-feed";
 
 const DEFAULT_ADMIN = "0x9c6111C77CBE545B9703243F895EB593f2721C7a";
 
@@ -83,7 +84,8 @@ export function AutoLaunchPanel({ instanceId = 1, instanceLabel }: AutoLaunchPan
     });
     // Scroll within log container only (block: "nearest" prevents page scroll)
     setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
-  }, []);
+    addGlobalLog(`[Auto #${instanceId}] ${msg}`, type);
+  }, [instanceId]);
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

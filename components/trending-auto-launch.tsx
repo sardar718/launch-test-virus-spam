@@ -7,8 +7,19 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { addDeployedToken } from "@/components/deployed-tokens-box";
+import { addGlobalLog } from "@/components/global-activity-feed";
 
 const DEFAULT_ADMIN = "0x9c6111C77CBE545B9703243F895EB593f2721C7a";
+
+type TrendChain = "all" | "bsc" | "base" | "solana" | "ethereum";
+
+const CHAIN_OPTIONS: { id: TrendChain; label: string; color: string }[] = [
+  { id: "all", label: "All Chains", color: "bg-primary text-primary-foreground" },
+  { id: "bsc", label: "BSC", color: "bg-[#F0B90B]/20 text-[#F0B90B]" },
+  { id: "base", label: "Base", color: "bg-[#0052FF]/20 text-[#0052FF]" },
+  { id: "solana", label: "Solana", color: "bg-[#9945FF]/20 text-[#9945FF]" },
+  { id: "ethereum", label: "ETH", color: "bg-[#627EEA]/20 text-[#627EEA]" },
+];
 
 type Launchpad = "4claw" | "kibu" | "clawnch" | "molaunch" | "fourclaw_fun" | "synthlaunch";
 type Agent = "moltx" | "4claw_org" | "moltbook" | "clawstr" | "direct_api" | "bapbook";
@@ -72,6 +83,7 @@ export function TrendingAutoLaunch() {
   const [chain, setChain] = useState("bsc");
   const [trendSource, setTrendSource] = useState<TrendSource>("all");
   const [trendFilter, setTrendFilter] = useState<TrendFilter>("trending");
+  const [trendChain, setTrendChain] = useState<TrendChain>("all");
   const [delaySeconds, setDelaySeconds] = useState("30");
   const [maxLaunches, setMaxLaunches] = useState("10");
   const [useCustomWallet, setUseCustomWallet] = useState(false);
@@ -92,13 +104,14 @@ export function TrendingAutoLaunch() {
       return next.length > 200 ? next.slice(-200) : next;
     });
     setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50);
+    addGlobalLog(`[Trending] ${msg}`, type);
   }, []);
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   // Fetch trending topics with filter
   const fetchTrending = async (): Promise<TrendItem[]> => {
-    const r = await fetch(`/api/auto-launch/fetch-trending?source=${trendSource}&filter=${trendFilter}&limit=25`);
+    const r = await fetch(`/api/auto-launch/fetch-trending?source=${trendSource}&filter=${trendFilter}&chain=${trendChain}&limit=25`);
     const d = await r.json();
     // Log source status
     if (d.sources) {
@@ -285,6 +298,28 @@ export function TrendingAutoLaunch() {
                 } disabled:opacity-50`}
               >
                 {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Chain Filter */}
+        <div>
+          <Label className="text-[10px] text-muted-foreground mb-1 block">Chain</Label>
+          <div className="flex flex-wrap gap-1">
+            {CHAIN_OPTIONS.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => setTrendChain(c.id)}
+                disabled={running}
+                className={`rounded px-2 py-1 text-[10px] font-medium transition-colors ${
+                  trendChain === c.id
+                    ? c.color
+                    : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                } disabled:opacity-50`}
+              >
+                {c.label}
               </button>
             ))}
           </div>

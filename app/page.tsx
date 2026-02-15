@@ -12,6 +12,7 @@ import { HealthCheck } from "@/components/health-check";
 import { AgentPostsFeed } from "@/components/agent-posts-feed";
 import { TrendingAutoLaunch } from "@/components/trending-auto-launch";
 import { CloudAutoLaunch } from "@/components/cloud-auto-launch";
+import { GlobalActivityFeed } from "@/components/global-activity-feed";
 import { PasswordGate } from "@/components/password-gate";
 
 export interface TokenPrefill {
@@ -48,29 +49,29 @@ export default function Page() {
     <PasswordGate>
     <div className="min-h-screen bg-background">
       <Header />
-      <main className="mx-auto max-w-7xl px-4 py-4 lg:px-8">
+      <main className="mx-auto max-w-7xl px-2 py-3 sm:px-4 sm:py-4 lg:px-8">
         {/* Stats */}
-        <section className="mb-4">
+        <section className="mb-3 sm:mb-4">
           <StatsBar />
         </section>
 
         {/* Trending Memecoins */}
-        <section className="mb-4">
+        <section className="mb-3 sm:mb-4">
           <TrendingMemecoins onSelectToken={handleSelectToken} />
         </section>
 
         {/* Main Content Grid */}
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          {/* Left: Launch Form + Recent Launches */}
-          <div id="launch-form" className="space-y-4 lg:col-span-5">
+        <div className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-12">
+          {/* Left: Launch Form + Cloud panels + Recent Launches */}
+          <div id="launch-form" className="space-y-3 sm:space-y-4 lg:col-span-5">
             <LaunchForm prefill={prefill} />
             <CloudAutoLaunch instanceId={1} instanceLabel="Cloud Auto-Launch #1" />
             <CloudAutoLaunch instanceId={2} instanceLabel="Cloud Auto-Launch #2" />
             <RecentLaunches />
           </div>
 
-          {/* Right: Auto Launch (x3) + Deployed Tokens */}
-          <div className="space-y-4 lg:col-span-7">
+          {/* Right: Auto Launch (x3) + Trending + Deployed Tokens */}
+          <div className="space-y-3 sm:space-y-4 lg:col-span-7">
             <AutoLaunchPanel instanceId={1} instanceLabel="Auto-Launch #1" />
             <AutoLaunchPanel instanceId={2} instanceLabel="Auto-Launch #2" />
             <AutoLaunchPanel instanceId={3} instanceLabel="Auto-Launch #3" />
@@ -79,8 +80,13 @@ export default function Page() {
           </div>
         </div>
 
+        {/* Global Activity Feed */}
+        <section className="mt-6">
+          <GlobalActivityFeed />
+        </section>
+
         {/* System Status / Health Check -- Separate section */}
-        <section className="mt-8 border-t border-border pt-6">
+        <section className="mt-6 border-t border-border pt-6">
           <HealthCheck />
         </section>
 
@@ -90,8 +96,8 @@ export default function Page() {
         </section>
 
         {/* Footer */}
-        <footer className="mt-10 border-t border-border pt-5 pb-6">
-          <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
+        <footer className="mt-8 border-t border-border pt-4 pb-6 sm:mt-10 sm:pt-5">
+          <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-between">
             <div className="flex items-center gap-2">
               <div className="flex h-5 w-5 items-center justify-center rounded bg-primary text-primary-foreground text-[8px] font-mono font-bold">
                 4C
@@ -100,8 +106,8 @@ export default function Page() {
                 Multi-Platform Launchpad v4.0
               </span>
             </div>
-            <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
-              <span>4claw | Kibu | Clawnch | Molaunch | FourClaw.Fun | SynthLaunch</span>
+            <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 text-[9px] sm:text-[10px] text-muted-foreground">
+              <span className="hidden sm:inline">4claw | Kibu | Clawnch | Molaunch | FourClaw.Fun | SynthLaunch</span>
               <span className="hidden sm:inline">|</span>
               {[
                 { label: "4claw Docs", url: "https://4claw.fun" },

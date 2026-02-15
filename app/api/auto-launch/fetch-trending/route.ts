@@ -206,64 +206,64 @@ async function fetchDexScreener(filter: string): Promise<TrendItem[]> {
 }
 
 // ── Source 3: GeckoTerminal ──
-async function fetchGeckoTerminal(filter: string): Promise<TrendItem[]> {
+async function fetchGeckoTerminal(filter: string, chainFilter = "all"): Promise<TrendItem[]> {
   const items: TrendItem[] = [];
   try {
-    const net = "bsc";
-    let ep = `https://api.geckoterminal.com/api/v2/networks/${net}/trending_pools?page=1`;
-    if (filter === "new") ep = `https://api.geckoterminal.com/api/v2/networks/${net}/new_pools?page=1`;
+    const networks = chainFilter === "all" ? ["bsc", "base", "solana", "eth"]
+      : chainFilter === "ethereum" ? ["eth"]
+      : [chainFilter];
 
-    const r = await fetch(ep, { signal: AbortSignal.timeout(8000) });
-    if (!r.ok) return items;
-    const data = await r.json();
-    const pools = data?.data || [];
+    for (const net of networks) {
+      if (items.length >= 15) break;
+      let ep = `https://api.geckoterminal.com/api/v2/networks/${net}/trending_pools?page=1`;
+      if (filter === "new") ep = `https://api.geckoterminal.com/api/v2/networks/${net}/new_pools?page=1`;
 
-    for (const pool of pools.slice(0, 15)) {
-      const attrs = pool.attributes || {};
-      const poolName = attrs.name || "";
-      const tokenName = poolName.split("/")[0]?.trim();
-      if (!tokenName || tokenName.length < 2) continue;
+      try {
+        const r = await fetch(ep, { signal: AbortSignal.timeout(8000) });
+        if (!r.ok) continue;
+        const data = await r.json();
+        const pools = data?.data || [];
 
-      // Get base token address for image lookup
-      const baseId = pool.relationships?.base_token?.data?.id || "";
-      const tokenAddr = baseId.split("_")[1] || "";
-      let img = "";
+        for (const pool of pools.slice(0, 10)) {
+          const attrs = pool.attributes || {};
+          const poolName = attrs.name || "";
+          const tokenName = poolName.split("/")[0]?.trim();
+          if (!tokenName || tokenName.length < 2) continue;
 
-      // Try GeckoTerminal image URL
-      if (tokenAddr) {
-        const possibleImgs = [
-          `https://assets.geckoterminal.com/uploads/token/image_url/${net}_${tokenAddr}/small.png`,
-          `https://coin-images.coingecko.com/coins/images/search?query=${tokenName}`,
-        ];
-        for (const u of possibleImgs) {
-          if (u.includes("geckoterminal.com")) { img = u; break; }
+          const baseId = pool.relationships?.base_token?.data?.id || "";
+          const tokenAddr = baseId.split("_")[1] || "";
+          let img = "";
+
+          if (tokenAddr) {
+            img = `https://assets.geckoterminal.com/uploads/token/image_url/${net}_${tokenAddr}/small.png`;
+          }
+
+          if (img) {
+            try {
+              const h = await fetch(img, { method: "HEAD", signal: AbortSignal.timeout(3000) });
+              if (!h.ok) img = "";
+            } catch { img = ""; }
+          }
+
+          if (!img) {
+            img = await searchImageForTopic(`${tokenName} crypto token logo`);
+          }
+          if (!img) continue;
+
+          const symbol = toSymbol(tokenName);
+          const vol = parseFloat(attrs.volume_usd?.h24 || "0");
+          const change = parseFloat(attrs.price_change_percentage?.h24 || "0");
+          const chainLabel = net === "eth" ? "ethereum" : net;
+
+          items.push({
+            name: tokenName, symbol,
+            imageUrl: cleanImg(img),
+            source: `GeckoTerminal ${chainLabel.toUpperCase()} (${filter === "new" ? "New" : "Trending"})`,
+            description: vol > 0 ? `Vol: $${(vol / 1e3).toFixed(1)}K | ${chainLabel}` : chainLabel,
+            volume24h: vol, priceChange: change,
+          });
         }
-      }
-
-      // Verify the GeckoTerminal image exists by HEAD check
-      if (img) {
-        try {
-          const h = await fetch(img, { method: "HEAD", signal: AbortSignal.timeout(3000) });
-          if (!h.ok) img = "";
-        } catch { img = ""; }
-      }
-
-      if (!img) {
-        img = await searchImageForTopic(`${tokenName} crypto token logo`);
-      }
-      if (!img) continue;
-
-      const symbol = toSymbol(tokenName);
-      const vol = parseFloat(attrs.volume_usd?.h24 || "0");
-      const change = parseFloat(attrs.price_change_percentage?.h24 || "0");
-
-      items.push({
-        name: tokenName, symbol,
-        imageUrl: cleanImg(img),
-        source: filter === "new" ? "GeckoTerminal (New)" : "GeckoTerminal (Trending)",
-        description: vol > 0 ? `Vol: $${(vol / 1e3).toFixed(1)}K` : undefined,
-        volume24h: vol, priceChange: change,
-      });
+      } catch { /* try next network */ }
     }
   } catch (e) { console.error("[trending] GeckoTerminal:", e); }
   return items;
@@ -379,6 +379,7 @@ export async function GET(request: Request) {
   const sourceParam = searchParams.get("source") || "all";
   // Filters: "trending" (default) | "volume" | "gainers" | "new"
   const filter = searchParams.get("filter") || "trending";
+  const chainFilter = searchParams.get("chain") || "all";
   const limit = Math.min(parseInt(searchParams.get("limit") || "20"), 50);
 
   const fetchers: { key: string; fn: Promise<TrendItem[]> }[] = [];
@@ -386,7 +387,7 @@ export async function GET(request: Request) {
 
   if (wantsAll || sourceParam === "coingecko") fetchers.push({ key: "coingecko", fn: fetchCoinGecko(filter) });
   if (wantsAll || sourceParam === "dexscreener") fetchers.push({ key: "dexscreener", fn: fetchDexScreener(filter) });
-  if (wantsAll || sourceParam === "geckoterminal") fetchers.push({ key: "geckoterminal", fn: fetchGeckoTerminal(filter) });
+  if (wantsAll || sourceParam === "geckoterminal") fetchers.push({ key: "geckoterminal", fn: fetchGeckoTerminal(filter, chainFilter) });
   if (wantsAll || sourceParam === "google") fetchers.push({ key: "google", fn: fetchGoogleTrends() });
   if (wantsAll || sourceParam === "twitter") fetchers.push({ key: "twitter", fn: fetchTwitterCrypto() });
 
