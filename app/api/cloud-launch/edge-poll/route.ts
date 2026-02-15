@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
 
 export const runtime = "edge";
-export const maxDuration = 60; // Edge functions can run up to 60s
+export const maxDuration = 60;
 
 const redis = new Redis({
   url: process.env.KV_REST_API_URL!,
@@ -28,57 +28,76 @@ interface LogEntry {
 
 async function addLog(msg: string, type: string = "info") {
   const log: LogEntry = {
-    time: new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }),
-    msg, type,
+    time: new Date().toLocaleTimeString("en-US", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }),
+    msg,
+    type,
   };
   await redis.lpush(LOG_KEY, log);
   await redis.ltrim(LOG_KEY, 0, 99);
 }
 
-// Edge poller: runs for up to 60s, calling the cron endpoint at intervals
-// After 60s, the client re-triggers this if still running
+// Edge poller: runs for up to 55s, calling the cron endpoint at intervals
 export async function GET(request: Request) {
   const baseUrl = new URL(request.url).origin;
   const startTime = Date.now();
-  const maxRuntime = 55000; // Leave 5s buffer before edge timeout
+  const maxRuntime = 52000; // Leave buffer before edge 60s timeout
   let cycles = 0;
 
   try {
+    await addLog("Edge session started", "info");
+
     while (Date.now() - startTime < maxRuntime) {
       // Check if still running
       const config = await redis.get<CloudConfig>(REDIS_KEY);
       if (!config || !config.running || config.mode !== "edge") {
-        await addLog("Edge poller: config says stop. Exiting.", "info");
+        await addLog("Edge session: stopped or mode changed", "info");
         break;
       }
 
       if (config.totalLaunched >= config.maxLaunches) {
-        await addLog("Edge poller: max launches reached. Stopping.", "success");
+        await addLog("Edge session: max launches reached", "success");
         break;
       }
 
       // Call the cron handler to do one deploy cycle
       try {
-        await fetch(`${baseUrl}/api/cloud-launch/cron`, {
-          signal: AbortSignal.timeout(30000),
+        const cronRes = await fetch(`${baseUrl}/api/cloud-launch/cron`, {
+          signal: AbortSignal.timeout(35000),
         });
+        const cronData = await cronRes.json();
         cycles++;
+        if (cronData.deployed) {
+          await addLog(`Edge cycle ${cycles}: token deployed`, "success");
+        }
       } catch (e) {
-        await addLog(`Edge poll cycle error: ${String(e).slice(0, 60)}`, "error");
+        await addLog(
+          `Edge cycle error: ${String(e).slice(0, 60)}`,
+          "error",
+        );
       }
 
       // Wait the configured delay before next cycle
       const delay = Math.max((config.delaySeconds || 30) * 1000, 10000);
-      const waitUntil = Math.min(delay, maxRuntime - (Date.now() - startTime));
-      if (waitUntil <= 0) break;
-      await new Promise((r) => setTimeout(r, waitUntil));
+      const remaining = maxRuntime - (Date.now() - startTime);
+      const waitTime = Math.min(delay, remaining);
+      if (waitTime <= 0) break;
+      await new Promise((r) => setTimeout(r, waitTime));
     }
+
+    await addLog(
+      `Edge session ended after ${cycles} cycles (${Math.floor((Date.now() - startTime) / 1000)}s)`,
+      "info",
+    );
 
     return NextResponse.json({
       success: true,
       cycles,
       runtime: Date.now() - startTime,
-      message: "Edge poll session complete. Client should re-trigger if config.running is true.",
     });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });

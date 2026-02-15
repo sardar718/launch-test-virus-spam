@@ -12,6 +12,7 @@ import { HealthCheck } from "@/components/health-check";
 import { AgentPostsFeed } from "@/components/agent-posts-feed";
 import { TrendingAutoLaunch } from "@/components/trending-auto-launch";
 import { CloudAutoLaunch } from "@/components/cloud-auto-launch";
+import { PasswordGate } from "@/components/password-gate";
 
 export interface TokenPrefill {
   name: string;
@@ -44,6 +45,7 @@ export default function Page() {
   }, []);
 
   return (
+    <PasswordGate>
     <div className="min-h-screen bg-background">
       <Header />
       <main className="mx-auto max-w-7xl px-4 py-4 lg:px-8">
@@ -62,6 +64,7 @@ export default function Page() {
           {/* Left: Launch Form + Recent Launches */}
           <div id="launch-form" className="space-y-4 lg:col-span-5">
             <LaunchForm prefill={prefill} />
+            <CloudAutoLaunch />
             <RecentLaunches />
           </div>
 
@@ -71,7 +74,6 @@ export default function Page() {
             <AutoLaunchPanel instanceId={2} instanceLabel="Auto-Launch #2" />
             <AutoLaunchPanel instanceId={3} instanceLabel="Auto-Launch #3" />
             <TrendingAutoLaunch />
-            <CloudAutoLaunch />
             <DeployedTokensBox />
           </div>
         </div>
@@ -124,5 +126,6 @@ export default function Page() {
         </footer>
       </main>
     </div>
+    </PasswordGate>
   );
 }

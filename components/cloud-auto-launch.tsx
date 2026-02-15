@@ -44,6 +44,7 @@ export function CloudAutoLaunch() {
   const [launchpad, setLaunchpad] = useState<Launchpad>("kibu");
   const [agent, setAgent] = useState<Agent>("4claw_org");
   const [chain, setChain] = useState("bsc");
+  const [kibuPlatform, setKibuPlatform] = useState<"flap" | "fourmeme">("flap");
   const [delaySeconds, setDelaySeconds] = useState("60");
   const [maxLaunches, setMaxLaunches] = useState("50");
   const [useCustomWallet, setUseCustomWallet] = useState(false);
@@ -109,6 +110,7 @@ export function CloudAutoLaunch() {
           chain,
           wallet: activeWallet,
           source: chain,
+          kibuPlatform: launchpad === "kibu" ? kibuPlatform : undefined,
           delaySeconds: parseInt(delaySeconds) || 60,
           maxLaunches: parseInt(maxLaunches) || 50,
         }),
@@ -306,6 +308,22 @@ export function CloudAutoLaunch() {
                 ))}
               </div>
             </div>
+
+            {/* Kibu Platform */}
+            {launchpad === "kibu" && (
+              <div>
+                <Label className="text-[10px] text-muted-foreground mb-1 block">Kibu Platform</Label>
+                <div className="flex gap-1">
+                  {(["flap", "fourmeme"] as const).map((p) => (
+                    <button key={p} type="button" onClick={() => setKibuPlatform(p)}
+                      className={`rounded px-3 py-1 text-[10px] font-medium transition-colors ${
+                        kibuPlatform === p ? "bg-accent text-accent-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                      }`}
+                    >{p === "flap" ? "Flap.sh" : "FourMeme"}</button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Params */}
             <div className="grid grid-cols-2 gap-2">

@@ -12,13 +12,14 @@ const MAX_LOGS = 100;
 
 export interface CloudLaunchConfig {
   running: boolean;
-  mode: "cron" | "edge"; // cron = Vercel Cron, edge = Edge Function + KV polling
+  mode: "cron" | "edge";
   launchpad: string;
   agent: string;
   chain: string;
   wallet: string;
-  source: string; // "bsc" | "base" | "solana" for token source
-  trendSource?: string; // for trending mode
+  source: string;
+  kibuPlatform?: string;
+  trendSource?: string;
   trendFilter?: string;
   delaySeconds: number;
   maxLaunches: number;
@@ -26,7 +27,8 @@ export interface CloudLaunchConfig {
   startedAt: number;
   stoppedAt?: number;
   lastRunAt?: number;
-  launchedSymbols: string[]; // track already launched to avoid duplicates
+  sourceIndex?: number; // for rotating fetch-tokens sources
+  launchedSymbols: string[];
 }
 
 export interface CloudLogEntry {
@@ -64,12 +66,14 @@ export async function POST(request: Request) {
         chain: body.chain || "bsc",
         wallet: body.wallet || "",
         source: body.source || "bsc",
+        kibuPlatform: body.kibuPlatform || "flap",
         trendSource: body.trendSource,
         trendFilter: body.trendFilter,
         delaySeconds: body.delaySeconds || 30,
         maxLaunches: body.maxLaunches || 50,
         totalLaunched: 0,
         startedAt: Date.now(),
+        sourceIndex: 0,
         launchedSymbols: [],
       };
 
