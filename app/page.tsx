@@ -64,7 +64,8 @@ export default function Page() {
           {/* Left: Launch Form + Recent Launches */}
           <div id="launch-form" className="space-y-4 lg:col-span-5">
             <LaunchForm prefill={prefill} />
-            <CloudAutoLaunch />
+            <CloudAutoLaunch instanceId={1} instanceLabel="Cloud Auto-Launch #1" />
+            <CloudAutoLaunch instanceId={2} instanceLabel="Cloud Auto-Launch #2" />
             <RecentLaunches />
           </div>
 

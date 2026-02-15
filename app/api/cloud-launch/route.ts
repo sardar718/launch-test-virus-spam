@@ -6,9 +6,10 @@ const redis = new Redis({
   token: process.env.KV_REST_API_TOKEN!,
 });
 
-const REDIS_KEY = "cloud-auto-launch";
-const LOG_KEY = "cloud-auto-launch-logs";
-const MAX_LOGS = 100;
+const MAX_LOGS = 120;
+
+function redisKey(instanceId: number) { return `cloud-launch-${instanceId}`; }
+function logKey(instanceId: number) { return `cloud-launch-logs-${instanceId}`; }
 
 export interface CloudLaunchConfig {
   running: boolean;
@@ -19,15 +20,13 @@ export interface CloudLaunchConfig {
   wallet: string;
   source: string;
   kibuPlatform?: string;
-  trendSource?: string;
-  trendFilter?: string;
   delaySeconds: number;
   maxLaunches: number;
   totalLaunched: number;
   startedAt: number;
   stoppedAt?: number;
   lastRunAt?: number;
-  sourceIndex?: number; // for rotating fetch-tokens sources
+  sourceIndex?: number;
   launchedSymbols: string[];
 }
 
@@ -37,25 +36,27 @@ export interface CloudLogEntry {
   type: "info" | "success" | "error" | "skip";
 }
 
-// GET: fetch current status + logs
-export async function GET() {
+// GET: fetch status + logs for an instance
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const instanceId = parseInt(url.searchParams.get("id") || "1");
   try {
-    const config = await redis.get<CloudLaunchConfig>(REDIS_KEY);
-    const logs = await redis.lrange<CloudLogEntry>(LOG_KEY, 0, MAX_LOGS - 1);
-    return NextResponse.json({
-      config: config || null,
-      logs: logs || [],
-    });
+    const config = await redis.get<CloudLaunchConfig>(redisKey(instanceId));
+    const logs = await redis.lrange<CloudLogEntry>(logKey(instanceId), 0, MAX_LOGS - 1);
+    return NextResponse.json({ config: config || null, logs: (logs || []).reverse() });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
 }
 
-// POST: start / stop / update config
+// POST: start / stop / clear for an instance
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const action = body.action as string;
+    const instanceId = parseInt(body.instanceId || "1");
+    const rk = redisKey(instanceId);
+    const lk = logKey(instanceId);
 
     if (action === "start") {
       const config: CloudLaunchConfig = {
@@ -67,39 +68,34 @@ export async function POST(request: Request) {
         wallet: body.wallet || "",
         source: body.source || "bsc",
         kibuPlatform: body.kibuPlatform || "flap",
-        trendSource: body.trendSource,
-        trendFilter: body.trendFilter,
-        delaySeconds: body.delaySeconds || 30,
+        delaySeconds: body.delaySeconds || 60,
         maxLaunches: body.maxLaunches || 50,
         totalLaunched: 0,
         startedAt: Date.now(),
         sourceIndex: 0,
         launchedSymbols: [],
       };
-
-      await redis.set(REDIS_KEY, config);
-      // Clear old logs
-      await redis.del(LOG_KEY);
-      await addCloudLog({ msg: `Cloud auto-launch started (${config.mode} mode)`, type: "success" });
-
+      await redis.set(rk, config);
+      await redis.del(lk);
+      await addCloudLog(instanceId, { msg: `Cloud #${instanceId} started (${config.mode} mode)`, type: "success" });
       return NextResponse.json({ success: true, config });
     }
 
     if (action === "stop") {
-      const existing = await redis.get<CloudLaunchConfig>(REDIS_KEY);
+      const existing = await redis.get<CloudLaunchConfig>(rk);
       if (existing) {
         existing.running = false;
         existing.stoppedAt = Date.now();
-        await redis.set(REDIS_KEY, existing);
-        await addCloudLog({ msg: "Cloud auto-launch stopped by user", type: "info" });
+        await redis.set(rk, existing);
+        await addCloudLog(instanceId, { msg: "Stopped by user", type: "info" });
       }
-      return NextResponse.json({ success: true, message: "Stopped" });
+      return NextResponse.json({ success: true });
     }
 
     if (action === "clear") {
-      await redis.del(REDIS_KEY);
-      await redis.del(LOG_KEY);
-      return NextResponse.json({ success: true, message: "Cleared" });
+      await redis.del(rk);
+      await redis.del(lk);
+      return NextResponse.json({ success: true });
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
@@ -108,13 +104,13 @@ export async function POST(request: Request) {
   }
 }
 
-// Helper: add a log entry to Redis
-async function addCloudLog(entry: Omit<CloudLogEntry, "time">) {
+export async function addCloudLog(instanceId: number, entry: Omit<CloudLogEntry, "time">) {
   const log: CloudLogEntry = {
     time: new Date().toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" }),
     msg: entry.msg,
     type: entry.type,
   };
-  await redis.lpush(LOG_KEY, log);
-  await redis.ltrim(LOG_KEY, 0, MAX_LOGS - 1);
+  const lk = logKey(instanceId);
+  await redis.lpush(lk, log);
+  await redis.ltrim(lk, 0, MAX_LOGS - 1);
 }
